@@ -21,6 +21,10 @@ cleanup() {
   log "Shutdown signal received; offboarding Edge Processor instance"
   if [[ -d "${WORKDIR}/splunk-edge/bin" ]]; then
     cd "${WORKDIR}"
+    if [[ ! -f "${WORKDIR}/splunk-edge/var/token" ]]; then
+      mkdir -p "${WORKDIR}/splunk-edge/var"
+      printf '%s' "${DMX_TOKEN}" > "${WORKDIR}/splunk-edge/var/token"
+    fi
     if pid="$(pidof splunk-edge 2>/dev/null || true)"; then
       kill "${pid}" || true
       wait "${pid}" 2>/dev/null || true
@@ -100,6 +104,38 @@ EOF
   fi
 }
 
+stage_splunksup_package() {
+  local package_url version_path version_id sup_url stage_dir tmp_tgz
+
+  package_url="$(discover_package_url)"
+  version_path="$(echo "${package_url}" | sed -n 's|.*/splunk-edge/\([^/]*\)/linux-amd64/.*|\1|p')"
+  if [[ -z "${version_path}" ]]; then
+    log "WARNING: Could not parse version from package URL; skipping splunksup pre-stage"
+    return 0
+  fi
+
+  version_id="$(echo "${version_path}" | sed 's/^v[0-9.]*-//' | tr -d '-')"
+  sup_url="https://${DMX_HOST}:8089/servicesNS/-/splunk_pipeline_builders/dmx/packages/splunksup/${version_path}/linux-amd64/splunksup.tar.gz"
+  stage_dir="${WORKDIR}/splunk-edge/var/sup-run/pkg-splunksup${version_id}"
+  tmp_tgz="${WORKDIR}/splunksup.tar.gz"
+
+  if [[ -x "${stage_dir}/splunksup" ]]; then
+    log "splunksup already staged at ${stage_dir}"
+    return 0
+  fi
+
+  log "Pre-staging splunksup via HTTPS (${stage_dir})"
+  curl "${CURL_OPTS[@]}" \
+    -H "Authorization: Bearer ${DMX_TOKEN}" \
+    -o "${tmp_tgz}" \
+    "${sup_url}"
+
+  mkdir -p "${stage_dir}"
+  tar -xzf "${tmp_tgz}" -C "${stage_dir}"
+  rm -f "${tmp_tgz}"
+  log "splunksup staged successfully"
+}
+
 install_edge_processor() {
   mkdir -p "${WORKDIR}"
   cd "${WORKDIR}"
@@ -118,6 +154,8 @@ install_edge_processor() {
 
   tar -xzf splunk-edge.tar.gz
   rm -f splunk-edge.tar.gz
+
+  stage_splunksup_package
 
   write_config_yaml
 

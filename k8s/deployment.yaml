@@ -84,17 +84,3 @@ spec:
             periodSeconds: 15
             timeoutSeconds: 5
             failureThreshold: 3
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /bin/sh
-                  - -c
-                  - |
-                    if pid=$(pidof splunk-edge 2>/dev/null); then
-                      kill "$pid" || true
-                      wait "$pid" 2>/dev/null || true
-                    fi
-                    if [ -x /opt/splunk-edge/splunk-edge/bin/splunk-edge ]; then
-                      /opt/splunk-edge/splunk-edge/bin/splunk-edge offboard || true
-                    fi
