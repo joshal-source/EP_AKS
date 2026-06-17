@@ -20,8 +20,8 @@ log() {
 
 cleanup() {
   log "Shutdown signal received; offboarding Edge Processor instance"
-  if [[ -n "${MGMT_PROXY_PID:-}" ]]; then
-    kill "${MGMT_PROXY_PID}" 2>/dev/null || true
+  if [[ -n "${NGINX_PID:-}" ]]; then
+    nginx -s quit 2>/dev/null || kill "${NGINX_PID}" 2>/dev/null || true
   fi
   if [[ -d "${WORKDIR}/splunk-edge/bin" ]]; then
     cd "${WORKDIR}"
@@ -48,7 +48,6 @@ resolve_upstream_ip() {
     log "ERROR: Could not resolve ${DMX_HOST}"
     exit 1
   fi
-  export UPSTREAM_IP
 }
 
 start_https_rewrite_proxy() {
@@ -61,21 +60,41 @@ start_https_rewrite_proxy() {
       -addext "subjectAltName=DNS:${DMX_HOST}" 2>/dev/null
   fi
 
+  cat > /etc/nginx/nginx.conf <<EOF
+worker_processes 1;
+error_log /dev/stderr warn;
+pid /tmp/nginx.pid;
+events { worker_connections 256; }
+http {
+  access_log /dev/stdout;
+  server {
+    listen 127.0.0.1:${MGMT_PROXY_PORT} ssl;
+    server_name ${DMX_HOST};
+    ssl_certificate ${PROXY_CERT_DIR}/proxy.crt;
+    ssl_certificate_key ${PROXY_CERT_DIR}/proxy.key;
+    location / {
+      proxy_pass https://${UPSTREAM_IP}:8089;
+      proxy_ssl_verify off;
+      proxy_ssl_server_name on;
+      proxy_set_header Host ${DMX_HOST};
+      proxy_set_header Authorization \$http_authorization;
+      proxy_set_header Accept-Encoding "";
+      proxy_buffering on;
+      sub_filter 'http://${DMX_HOST}' 'https://${DMX_HOST}';
+      sub_filter_once off;
+      sub_filter_types *;
+    }
+  }
+}
+EOF
+
   if ! grep -q "[[:space:]]${DMX_HOST}$" /etc/hosts; then
     printf '127.0.0.1 %s\n' "${DMX_HOST}" >> /etc/hosts
   fi
 
-  export PROXY_CERT="${PROXY_CERT_DIR}/proxy.crt"
-  export PROXY_KEY="${PROXY_CERT_DIR}/proxy.key"
-
   log "Starting HTTPS rewrite proxy on 127.0.0.1:${MGMT_PROXY_PORT} -> ${UPSTREAM_IP}:8089 (${DMX_HOST})"
-  python3 /mgmt-proxy.py &
-  MGMT_PROXY_PID=$!
-  sleep 1
-  if ! kill -0 "${MGMT_PROXY_PID}" 2>/dev/null; then
-    log "ERROR: mgmt proxy failed to start on port ${MGMT_PROXY_PORT}"
-    exit 1
-  fi
+  nginx
+  NGINX_PID="$(cat /tmp/nginx.pid)"
 }
 
 discover_package_url() {
@@ -85,8 +104,6 @@ discover_package_url() {
   fi
 
   log "ERROR: SPLUNK_EDGE_PACKAGE_URL is not set."
-  log "Copy the curl URL from Splunk UI → Edge Processor → Manage instances → Install script."
-  log "Run: ./scripts/extract-package-from-install-script.sh install-script.txt"
   exit 1
 }
 
@@ -121,8 +138,6 @@ verify_package_checksum() {
 
   if [[ "${downloaded}" != "${checksum}" ]]; then
     log "ERROR: Package checksum mismatch."
-    log "Expected: ${checksum}"
-    log "Actual:   ${downloaded}"
     exit 1
   fi
 
@@ -131,7 +146,7 @@ verify_package_checksum() {
 
 write_config_yaml() {
   cat > ./splunk-edge/etc/config.yaml <<EOF
-url: https://${DMX_HOST}:8089/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management
+url: https://${DMX_HOST}:${MGMT_PROXY_PORT}/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management
 groupId: ${GROUP_ID}
 env: ${DMX_ENV}
 EOF
