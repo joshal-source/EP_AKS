@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ep-service
+  namespace: splunk-edge
+  annotations:
+    # Uncomment for an internal Azure Load Balancer (private IP only):
+    # service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+spec:
+  type: LoadBalancer
+  selector:
+    app: ep
+  ports:
+    - name: s2s
+      protocol: TCP
+      port: 9997
+      targetPort: 9997
+    - name: hec
+      protocol: TCP
+      port: 8088
+      targetPort: 8088
+    # Add syslog or other listener ports as needed, for example:
+    # - name: syslog-tcp
+    #   protocol: TCP
+    #   port: 5514
+    #   targetPort: 5514
+    # - name: syslog-udp
+    #   protocol: UDP
+    #   port: 5514
+    #   targetPort: 5514

@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ep-deployment
+  namespace: splunk-edge
+  labels:
+    app: ep
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ep
+  template:
+    metadata:
+      labels:
+        app: ep
+    spec:
+      # Required for private Docker Hub / GHCR / any registry not attached to AKS:
+      # imagePullSecrets:
+      #   - name: registry-pull-secret
+      containers:
+        - name: ep
+          # GitHub:     ghcr.io/yourusername/edgeprocessor:latest
+          # Docker Hub: yourusername/edgeprocessor:latest
+          # ACR:        myacr.azurecr.io/edgeprocessor:latest
+          image: ghcr.io/yourusername/edgeprocessor:latest
+          imagePullPolicy: Always
+          env:
+            - name: DMX_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: edge-processor-secrets
+                  key: token
+            - name: GROUP_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: ep-instance-guids
+                  key: EP_CORP_DC_1
+            - name: DMX_HOST
+              value: "YOUR_DMX_CONTROL_PLANE_HOST"
+            - name: DMX_ENV
+              value: "production"
+            # Optional: copy from Manage instances install script if auto-discovery fails
+            # - name: SPLUNK_EDGE_PACKAGE_URL
+            #   value: "https://YOUR_DMX_HOST:8089/servicesNS/-/splunk_pipeline_builders/dmx/packages/splunk-edge/..."
+            # - name: SPLUNK_EDGE_PACKAGE_CHECKSUM
+            #   value: "sha512-checksum-from-ui"
+            # Set to "true" only for lab environments with self-signed TLS on the control plane
+            # - name: DMX_INSECURE
+            #   value: "true"
+          resources:
+            requests:
+              cpu: "2000m"
+              memory: "2Gi"
+            limits:
+              cpu: "4000m"
+              memory: "4Gi"
+          ports:
+            - name: s2s
+              containerPort: 9997
+              protocol: TCP
+            - name: hec
+              containerPort: 8088
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pidof splunk-edge
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pidof splunk-edge
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    if pid=$(pidof splunk-edge 2>/dev/null); then
+                      kill "$pid" || true
+                      wait "$pid" 2>/dev/null || true
+                    fi
+                    if [ -x /opt/splunk-edge/splunk-edge/bin/splunk-edge ]; then
+                      /opt/splunk-edge/splunk-edge/bin/splunk-edge offboard || true
+                    fi

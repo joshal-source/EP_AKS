@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: splunk-edge
+  labels:
+    app.kubernetes.io/name: splunk-edge-processor
+    app.kubernetes.io/part-of: splunk-data-management
