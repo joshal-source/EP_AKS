@@ -7,6 +7,8 @@ set -euo pipefail
 : "${DMX_ENV:=production}"
 
 WORKDIR="${WORKDIR:-/opt/splunk-edge}"
+PROXY_CERT_DIR="${PROXY_CERT_DIR:-/tmp/splunk-mgmt-proxy}"
+MGMT_PROXY_PORT="${MGMT_PROXY_PORT:-8089}"
 CURL_OPTS=(-fsSL)
 if [[ "${DMX_INSECURE:-false}" == "true" ]]; then
   CURL_OPTS+=(-k)
@@ -18,6 +20,9 @@ log() {
 
 cleanup() {
   log "Shutdown signal received; offboarding Edge Processor instance"
+  if [[ -n "${MGMT_PROXY_PID:-}" ]]; then
+    kill "${MGMT_PROXY_PID}" 2>/dev/null || true
+  fi
   if [[ -d "${WORKDIR}/splunk-edge/bin" ]]; then
     cd "${WORKDIR}"
     if [[ ! -f "${WORKDIR}/splunk-edge/var/token" ]]; then
@@ -37,12 +42,47 @@ cleanup() {
 
 trap cleanup SIGTERM SIGINT
 
+resolve_upstream_ip() {
+  UPSTREAM_IP="$(getent ahostsv4 "${DMX_HOST}" | awk 'NR==1 {print $1}')"
+  if [[ -z "${UPSTREAM_IP}" ]]; then
+    log "ERROR: Could not resolve ${DMX_HOST}"
+    exit 1
+  fi
+  export UPSTREAM_IP
+}
+
+start_https_rewrite_proxy() {
+  mkdir -p "${PROXY_CERT_DIR}"
+  if [[ ! -f "${PROXY_CERT_DIR}/proxy.crt" ]]; then
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+      -keyout "${PROXY_CERT_DIR}/proxy.key" \
+      -out "${PROXY_CERT_DIR}/proxy.crt" \
+      -subj "/CN=${DMX_HOST}" \
+      -addext "subjectAltName=DNS:${DMX_HOST}" 2>/dev/null
+  fi
+
+  if ! grep -q "[[:space:]]${DMX_HOST}$" /etc/hosts; then
+    printf '127.0.0.1 %s\n' "${DMX_HOST}" >> /etc/hosts
+  fi
+
+  export PROXY_CERT="${PROXY_CERT_DIR}/proxy.crt"
+  export PROXY_KEY="${PROXY_CERT_DIR}/proxy.key"
+
+  log "Starting TLS rewrite proxy on 127.0.0.1:${MGMT_PROXY_PORT} -> ${UPSTREAM_IP}:8089"
+  python3 /mgmt-proxy.py &
+  MGMT_PROXY_PID=$!
+  sleep 1
+  if ! kill -0 "${MGMT_PROXY_PID}" 2>/dev/null; then
+    log "ERROR: mgmt proxy failed to start"
+    exit 1
+  fi
+}
+
 discover_package_url() {
   if [[ -n "${SPLUNK_EDGE_PACKAGE_URL:-}" ]]; then
     echo "${SPLUNK_EDGE_PACKAGE_URL}"
     return
   fi
-
   log "ERROR: SPLUNK_EDGE_PACKAGE_URL is not set."
   exit 1
 }
@@ -60,7 +100,6 @@ verify_package_checksum() {
   local downloaded len
 
   if [[ -z "${checksum}" || "${checksum}" == "null" ]]; then
-    log "WARNING: No checksum available; skipping verification"
     return 0
   fi
 
@@ -72,7 +111,6 @@ verify_package_checksum() {
     downloaded="$(sha512sum splunk-edge.tar.gz | awk '{print $1}')"
     log "Verifying SHA-512 checksum"
   else
-    log "WARNING: Checksum length ${len} is unexpected; skipping verification"
     return 0
   fi
 
@@ -80,13 +118,12 @@ verify_package_checksum() {
     log "ERROR: Package checksum mismatch."
     exit 1
   fi
-
   log "Package checksum verified"
 }
 
 write_config_yaml() {
   cat > ./splunk-edge/etc/config.yaml <<EOF
-url: https://${DMX_HOST}:8089/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management
+url: https://${DMX_HOST}:${MGMT_PROXY_PORT}/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management
 groupId: ${GROUP_ID}
 env: ${DMX_ENV}
 EOF
@@ -99,7 +136,7 @@ EOF
   fi
 }
 
-install_edge_processor() {
+download_edge_package() {
   mkdir -p "${WORKDIR}"
   cd "${WORKDIR}"
 
@@ -109,26 +146,27 @@ install_edge_processor() {
 
   if [[ "${package_url}" == http://* ]]; then
     package_url="https://${package_url#http://}"
-    log "Using HTTPS for package download"
   fi
 
   log "Downloading Edge Processor package from ${package_url}"
   curl "${CURL_OPTS[@]}" \
     -H "Authorization: Bearer ${DMX_TOKEN}" \
+    -H "Host: ${DMX_HOST}" \
+    --resolve "${DMX_HOST}:8089:${UPSTREAM_IP}" \
     -o splunk-edge.tar.gz \
     "${package_url}"
 
   verify_package_checksum "${checksum}"
-
   tar -xzf splunk-edge.tar.gz
   rm -f splunk-edge.tar.gz
+}
 
+start_splunk_edge() {
+  cd "${WORKDIR}"
   write_config_yaml
-
   mkdir -p ./splunk-edge/var
   printf '%s' "${DMX_TOKEN}" > ./splunk-edge/var/token
   mkdir -p ./splunk-edge/var/log
-
   log "Starting splunk-edge bootstrap"
   nohup ./splunk-edge/bin/splunk-edge run \
     >> ./splunk-edge/var/log/install-splunk-edge.out 2>&1 </dev/null &
@@ -142,10 +180,12 @@ wait_for_edge_processor() {
     tail -n 50 "${WORKDIR}/splunk-edge/var/log/install-splunk-edge.out" || true
     exit 1
   fi
-
   log "splunk-edge running with pid ${pid}"
   wait "${pid}"
 }
 
-install_edge_processor
+resolve_upstream_ip
+download_edge_package
+start_https_rewrite_proxy
+start_splunk_edge
 wait_for_edge_processor
