@@ -13,7 +13,6 @@ KEY = os.environ["PROXY_KEY"]
 
 HTTP_PREFIX = f"http://{DMX_HOST}".encode()
 HTTPS_PREFIX = f"https://{DMX_HOST}".encode()
-DELTA = len(HTTPS_PREFIX) - len(HTTP_PREFIX)
 
 UPSTREAM_CTX = ssl.create_default_context()
 UPSTREAM_CTX.check_hostname = False
@@ -24,7 +23,7 @@ SKIP_HEADERS = frozenset(
 )
 
 
-def read_varint(data: bytes, pos: int) -> tuple[int, int, int]:
+def read_varint(data: bytes, pos: int) -> tuple[int, int]:
     result = 0
     shift = 0
     start = pos
@@ -33,7 +32,7 @@ def read_varint(data: bytes, pos: int) -> tuple[int, int, int]:
         result |= (byte & 0x7f) << shift
         pos += 1
         if not (byte & 0x80):
-            return result, start, pos
+            return result, pos
         shift += 7
         if shift > 63:
             raise ValueError("varint too long")
@@ -49,44 +48,73 @@ def write_varint(value: int) -> bytes:
     return bytes(out)
 
 
+def rewrite_url_bytes(chunk: bytes) -> bytes:
+    if HTTP_PREFIX not in chunk:
+        return chunk
+    if chunk.startswith(HTTP_PREFIX):
+        return HTTPS_PREFIX + chunk[len(HTTP_PREFIX):]
+    return chunk.replace(HTTP_PREFIX, HTTPS_PREFIX)
+
+
+def rewrite_protobuf(body: bytes) -> bytes:
+    out = bytearray()
+    pos = 0
+    try:
+        while pos < len(body):
+            tag = body[pos]
+            wire_type = tag & 0x07
+            pos += 1
+
+            if wire_type == 0:
+                varint_start = pos
+                _, pos = read_varint(body, pos)
+                out.append(tag)
+                out.extend(body[varint_start:pos])
+            elif wire_type == 1:
+                if pos + 8 > len(body):
+                    return body
+                out.append(tag)
+                out.extend(body[pos:pos + 8])
+                pos += 8
+            elif wire_type == 2:
+                length, length_end = read_varint(body, pos)
+                pos = length_end
+                if pos + length > len(body):
+                    return body
+                chunk = body[pos:pos + length]
+                pos += length
+
+                if HTTP_PREFIX in chunk:
+                    nested = rewrite_protobuf(chunk)
+                    if nested != chunk:
+                        chunk = nested
+                    else:
+                        chunk = rewrite_url_bytes(chunk)
+
+                out.append(tag)
+                out.extend(write_varint(len(chunk)))
+                out.extend(chunk)
+            elif wire_type == 5:
+                if pos + 4 > len(body):
+                    return body
+                out.append(tag)
+                out.extend(body[pos:pos + 4])
+                pos += 4
+            else:
+                return body
+    except ValueError:
+        return body
+
+    return bytes(out)
+
+
 def rewrite_http_to_https(body: bytes) -> bytes:
     if HTTP_PREFIX not in body:
         return body
-
-    out = bytearray()
-    pos = 0
-    while True:
-        idx = body.find(HTTP_PREFIX, pos)
-        if idx == -1:
-            out.extend(body[pos:])
-            break
-
-        end = idx + len(HTTP_PREFIX)
-        while end < len(body) and body[end] not in (0, 34, 39, 60, 62, 32, 10, 13):
-            end += 1
-        old = body[idx:end]
-        new = HTTPS_PREFIX + old[len(HTTP_PREFIX):]
-
-        replaced = False
-        for start in range(idx - 1, max(idx - 6, -1), -1):
-            try:
-                length, varint_start, varint_end = read_varint(body, start)
-            except ValueError:
-                continue
-            if varint_end == idx and length == len(old) and body[idx:end] == old:
-                out.extend(body[pos:varint_start])
-                out.extend(write_varint(length + DELTA))
-                out.extend(new)
-                pos = end
-                replaced = True
-                break
-
-        if not replaced:
-            out.extend(body[pos:idx])
-            out.extend(new)
-            pos = end
-
-    return bytes(out)
+    rewritten = rewrite_protobuf(body)
+    if HTTP_PREFIX in rewritten:
+        return rewrite_url_bytes(rewritten)
+    return rewritten
 
 
 def read_chunked_body(rfile) -> bytes:
@@ -156,7 +184,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
         try:
             conn.request(self.command, self.path, body=body, headers=headers)
             resp = conn.getresponse()
-            data = rewrite_http_to_https(resp.read())
+            raw = resp.read()
+            content_type = resp.getheader("Content-Type", "")
+            if "protobuf" in content_type.lower() or "opamp" in self.path.lower():
+                data = rewrite_http_to_https(raw)
+            else:
+                data = raw
             self.send_response(resp.status)
             for key, value in resp.getheaders():
                 if key.lower() not in SKIP_HEADERS:
