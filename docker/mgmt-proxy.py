@@ -89,7 +89,27 @@ def rewrite_http_to_https(body: bytes) -> bytes:
     return bytes(out)
 
 
+def read_chunked_body(rfile) -> bytes:
+    chunks = bytearray()
+    while True:
+        line = rfile.readline()
+        if not line:
+            break
+        size_line = line.decode("ascii", errors="replace").strip().split(";", 1)[0]
+        if not size_line:
+            continue
+        chunk_size = int(size_line, 16)
+        if chunk_size == 0:
+            rfile.readline()
+            break
+        chunks.extend(rfile.read(chunk_size))
+        rfile.readline()
+    return bytes(chunks)
+
+
 class ProxyHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
     def do_GET(self):
         self._proxy()
 
@@ -105,9 +125,21 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def do_PATCH(self):
         self._proxy()
 
+    def _read_request_body(self) -> bytes | None:
+        if self.command not in {"POST", "PUT", "PATCH", "DELETE"}:
+            return None
+
+        if self.headers.get("Content-Length") is not None:
+            length = int(self.headers["Content-Length"])
+            return self.rfile.read(length) if length else b""
+
+        if self.headers.get("Transfer-Encoding", "").lower() == "chunked":
+            return read_chunked_body(self.rfile)
+
+        return b""
+
     def _proxy(self):
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length) if length else None
+        body = self._read_request_body()
         headers = {
             k: v
             for k, v in self.headers.items()
@@ -115,6 +147,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
         }
         headers["Host"] = DMX_HOST
         headers["Accept-Encoding"] = "identity"
+        if body is not None:
+            headers["Content-Length"] = str(len(body))
 
         conn = http.client.HTTPSConnection(
             UPSTREAM_IP, 8089, context=UPSTREAM_CTX, timeout=300

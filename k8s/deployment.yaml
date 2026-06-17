@@ -50,6 +50,9 @@ spec:
             # Self-signed TLS on control plane — required for this environment
             - name: DMX_INSECURE
               value: "true"
+            # Splunk OpAMP still advertises http:// package URLs; rewrite via local TLS proxy
+            - name: MGMT_PROXY_ENABLED
+              value: "true"
           resources:
             requests:
               cpu: "2000m"
