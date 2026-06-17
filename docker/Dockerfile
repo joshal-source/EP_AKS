@@ -7,8 +7,6 @@ RUN apt-get update \
         ca-certificates \
         curl \
         jq \
-        nginx \
-        openssl \
         tar \
         coreutils \
     && rm -rf /var/lib/apt/lists/*

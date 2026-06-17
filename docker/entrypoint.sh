@@ -7,8 +7,6 @@ set -euo pipefail
 : "${DMX_ENV:=production}"
 
 WORKDIR="${WORKDIR:-/opt/splunk-edge}"
-PROXY_CERT_DIR="${PROXY_CERT_DIR:-/tmp/splunk-mgmt-proxy}"
-MGMT_PROXY_PORT="${MGMT_PROXY_PORT:-8089}"
 CURL_OPTS=(-fsSL)
 if [[ "${DMX_INSECURE:-false}" == "true" ]]; then
   CURL_OPTS+=(-k)
@@ -20,9 +18,6 @@ log() {
 
 cleanup() {
   log "Shutdown signal received; offboarding Edge Processor instance"
-  if [[ -n "${NGINX_PID:-}" ]]; then
-    nginx -s quit 2>/dev/null || kill "${NGINX_PID}" 2>/dev/null || true
-  fi
   if [[ -d "${WORKDIR}/splunk-edge/bin" ]]; then
     cd "${WORKDIR}"
     if [[ ! -f "${WORKDIR}/splunk-edge/var/token" ]]; then
@@ -41,61 +36,6 @@ cleanup() {
 }
 
 trap cleanup SIGTERM SIGINT
-
-resolve_upstream_ip() {
-  UPSTREAM_IP="$(getent ahostsv4 "${DMX_HOST}" | awk 'NR==1 {print $1}')"
-  if [[ -z "${UPSTREAM_IP}" ]]; then
-    log "ERROR: Could not resolve ${DMX_HOST}"
-    exit 1
-  fi
-}
-
-start_https_rewrite_proxy() {
-  mkdir -p "${PROXY_CERT_DIR}"
-  if [[ ! -f "${PROXY_CERT_DIR}/proxy.crt" ]]; then
-    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-      -keyout "${PROXY_CERT_DIR}/proxy.key" \
-      -out "${PROXY_CERT_DIR}/proxy.crt" \
-      -subj "/CN=${DMX_HOST}" \
-      -addext "subjectAltName=DNS:${DMX_HOST}" 2>/dev/null
-  fi
-
-  cat > /etc/nginx/nginx.conf <<EOF
-worker_processes 1;
-error_log /dev/stderr warn;
-pid /tmp/nginx.pid;
-events { worker_connections 256; }
-http {
-  access_log /dev/stdout;
-  server {
-    listen 127.0.0.1:${MGMT_PROXY_PORT} ssl;
-    server_name ${DMX_HOST};
-    ssl_certificate ${PROXY_CERT_DIR}/proxy.crt;
-    ssl_certificate_key ${PROXY_CERT_DIR}/proxy.key;
-    location / {
-      proxy_pass https://${UPSTREAM_IP}:8089;
-      proxy_ssl_verify off;
-      proxy_ssl_server_name on;
-      proxy_set_header Host ${DMX_HOST};
-      proxy_set_header Authorization \$http_authorization;
-      proxy_set_header Accept-Encoding "";
-      proxy_buffering on;
-      sub_filter 'http://${DMX_HOST}' 'https://${DMX_HOST}';
-      sub_filter_once off;
-      sub_filter_types *;
-    }
-  }
-}
-EOF
-
-  if ! grep -q "[[:space:]]${DMX_HOST}$" /etc/hosts; then
-    printf '127.0.0.1 %s\n' "${DMX_HOST}" >> /etc/hosts
-  fi
-
-  log "Starting HTTPS rewrite proxy on 127.0.0.1:${MGMT_PROXY_PORT} -> ${UPSTREAM_IP}:8089 (${DMX_HOST})"
-  nginx
-  NGINX_PID="$(cat /tmp/nginx.pid)"
-}
 
 discover_package_url() {
   if [[ -n "${SPLUNK_EDGE_PACKAGE_URL:-}" ]]; then
@@ -146,7 +86,7 @@ verify_package_checksum() {
 
 write_config_yaml() {
   cat > ./splunk-edge/etc/config.yaml <<EOF
-url: https://${DMX_HOST}:${MGMT_PROXY_PORT}/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management
+url: https://${DMX_HOST}:8089/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management
 groupId: ${GROUP_ID}
 env: ${DMX_ENV}
 EOF
@@ -159,7 +99,7 @@ EOF
   fi
 }
 
-download_edge_package() {
+install_edge_processor() {
   mkdir -p "${WORKDIR}"
   cd "${WORKDIR}"
 
@@ -175,8 +115,6 @@ download_edge_package() {
   log "Downloading Edge Processor package from ${package_url}"
   curl "${CURL_OPTS[@]}" \
     -H "Authorization: Bearer ${DMX_TOKEN}" \
-    -H "Host: ${DMX_HOST}" \
-    --resolve "${DMX_HOST}:8089:${UPSTREAM_IP}" \
     -o splunk-edge.tar.gz \
     "${package_url}"
 
@@ -184,10 +122,7 @@ download_edge_package() {
 
   tar -xzf splunk-edge.tar.gz
   rm -f splunk-edge.tar.gz
-}
 
-start_splunk_edge() {
-  cd "${WORKDIR}"
   write_config_yaml
 
   mkdir -p ./splunk-edge/var
@@ -212,8 +147,5 @@ wait_for_edge_processor() {
   wait "${pid}"
 }
 
-resolve_upstream_ip
-download_edge_package
-start_https_rewrite_proxy
-start_splunk_edge
+install_edge_processor
 wait_for_edge_processor
