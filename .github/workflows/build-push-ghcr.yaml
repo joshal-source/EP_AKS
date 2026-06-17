@@ -5,7 +5,7 @@ on:
     branches: [main, master]
     paths:
       - docker/**
-      - .github/workflows/build-push-ghcr.yml
+      - .github/workflows/build-push-ghcr.yaml
   workflow_dispatch:
 
 permissions:

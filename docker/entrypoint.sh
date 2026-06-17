@@ -40,41 +40,10 @@ discover_package_url() {
     return
   fi
 
-  local metadata_url="https://${DMX_HOST}:8089/servicesNS/-/splunk_pipeline_builders/dmx/packages/splunk-edge"
-  local response
-  response="$(curl "${CURL_OPTS[@]}" \
-    -H "Authorization: Bearer ${DMX_TOKEN}" \
-    "${metadata_url}" || true)"
-
-  if [[ -z "${response}" ]]; then
-    log "ERROR: Could not discover package URL from control plane."
-    log "Set SPLUNK_EDGE_PACKAGE_URL from the Manage instances install script in Splunk UI."
-    exit 1
-  fi
-
-  local package_url
-  package_url="$(echo "${response}" | jq -r --arg arch "${ARCH}" '
-    if type == "array" then .
-    elif has("entries") then .entries
-    elif has("packages") then .packages
-    else . end
-    | map(select((.arch // .platform // "linux-amd64") == $arch or (.name // "" | test($arch))))
-    | sort_by(.version // .createdAt // .name // "")
-    | last
-    | .url // .downloadUrl // .href // empty
-  ')"
-
-  if [[ -z "${package_url}" || "${package_url}" == "null" ]]; then
-    log "ERROR: Package discovery did not return a download URL."
-    log "Copy the splunk-edge.tar.gz URL from Manage instances and set SPLUNK_EDGE_PACKAGE_URL."
-    exit 1
-  fi
-
-  if [[ "${package_url}" != http* ]]; then
-    package_url="https://${DMX_HOST}:8089${package_url}"
-  fi
-
-  echo "${package_url}"
+  log "ERROR: SPLUNK_EDGE_PACKAGE_URL is not set."
+  log "Copy the curl URL from Splunk UI → Edge Processor → Manage instances → Install script."
+  log "Run: ./scripts/extract-package-from-install-script.sh install-script.txt"
+  exit 1
 }
 
 discover_package_checksum() {
@@ -82,59 +51,82 @@ discover_package_checksum() {
     echo "${SPLUNK_EDGE_PACKAGE_CHECKSUM}"
     return
   fi
+  echo ""
+}
 
-  local metadata_url="https://${DMX_HOST}:8089/servicesNS/-/splunk_pipeline_builders/dmx/packages/splunk-edge"
-  local response
-  response="$(curl "${CURL_OPTS[@]}" \
-    -H "Authorization: Bearer ${DMX_TOKEN}" \
-    "${metadata_url}" || true)"
+verify_package_checksum() {
+  local checksum="$1"
+  local downloaded len
 
-  echo "${response}" | jq -r --arg arch "${ARCH}" '
-    if type == "array" then .
-    elif has("entries") then .entries
-    elif has("packages") then .packages
-    else . end
-    | map(select((.arch // .platform // "linux-amd64") == $arch or (.name // "" | test($arch))))
-    | sort_by(.version // .createdAt // .name // "")
-    | last
-    | .checksum // .sha512 // empty
-  '
+  if [[ -z "${checksum}" || "${checksum}" == "null" ]]; then
+    log "WARNING: No checksum available; skipping verification"
+    return 0
+  fi
+
+  len="${#checksum}"
+  if [[ "${len}" -eq 64 ]]; then
+    downloaded="$(sha256sum splunk-edge.tar.gz | awk '{print $1}')"
+    log "Verifying SHA-256 checksum"
+  elif [[ "${len}" -eq 128 ]]; then
+    downloaded="$(sha512sum splunk-edge.tar.gz | awk '{print $1}')"
+    log "Verifying SHA-512 checksum"
+  else
+    log "WARNING: Checksum length ${len} is unexpected; skipping verification"
+    return 0
+  fi
+
+  if [[ "${downloaded}" != "${checksum}" ]]; then
+    log "ERROR: Package checksum mismatch."
+    log "Expected: ${checksum}"
+    log "Actual:   ${downloaded}"
+    exit 1
+  fi
+
+  log "Package checksum verified"
+}
+
+write_config_yaml() {
+  local scheme="http"
+  if [[ "${DMX_USE_HTTPS_CONFIG:-false}" == "true" ]]; then
+    scheme="https"
+  fi
+
+  cat > ./splunk-edge/etc/config.yaml <<EOF
+url: ${scheme}://${DMX_HOST}:8089/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management
+groupId: ${GROUP_ID}
+env: ${DMX_ENV}
+EOF
+
+  if [[ "${DMX_INSECURE:-false}" == "true" ]]; then
+    cat >> ./splunk-edge/etc/config.yaml <<EOF
+settings:
+  disableServerCertValidation: true
+EOF
+  fi
 }
 
 install_edge_processor() {
   mkdir -p "${WORKDIR}"
   cd "${WORKDIR}"
 
-  local package_url checksum downloaded_checksum
+  local package_url checksum
   package_url="$(discover_package_url)"
   checksum="$(discover_package_checksum)"
 
-  log "Downloading Edge Processor package"
+  log "Downloading Edge Processor package from ${package_url}"
   curl "${CURL_OPTS[@]}" \
     -H "Authorization: Bearer ${DMX_TOKEN}" \
     -o splunk-edge.tar.gz \
     "${package_url}"
 
-  if [[ -n "${checksum}" && "${checksum}" != "null" ]]; then
-    downloaded_checksum="$(sha512sum splunk-edge.tar.gz | awk '{print $1}')"
-    if [[ "${downloaded_checksum}" != "${checksum}" ]]; then
-      log "ERROR: Package checksum mismatch."
-      exit 1
-    fi
-    log "Package checksum verified"
-  else
-    log "WARNING: No checksum available; skipping verification"
-  fi
+  verify_package_checksum "${checksum}"
 
   tar -xzf splunk-edge.tar.gz
   rm -f splunk-edge.tar.gz
 
-  cat > ./splunk-edge/etc/config.yaml <<EOF
-url: https://${DMX_HOST}:8089/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management
-groupId: ${GROUP_ID}
-env: ${DMX_ENV}
-EOF
+  write_config_yaml
 
+  mkdir -p ./splunk-edge/var
   printf '%s' "${DMX_TOKEN}" > ./splunk-edge/var/token
   mkdir -p ./splunk-edge/var/log
 

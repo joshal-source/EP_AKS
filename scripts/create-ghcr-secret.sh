@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 3 ]]; then
+if [[ $# -lt 2 ]]; then
   echo "Usage: $0 <github-username-or-org> <github-pat> [namespace] [secret-name]"
   echo ""
   echo "Creates a Kubernetes pull secret for GitHub Container Registry (ghcr.io)."

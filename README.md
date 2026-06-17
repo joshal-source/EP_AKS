@@ -4,12 +4,14 @@ Run Splunk Edge Processor nodes in **Azure Kubernetes Service (AKS)** — the Az
 
 This repo mirrors Splunk’s EKS workflow and swaps AWS-specific pieces for Azure:
 
-| EKS (Splunk doc) | AKS (this repo) |
-|---|---|
-| Amazon ECR | Azure Container Registry (ACR) |
-| AWS NLB via `LoadBalancer` Service | Azure Standard Load Balancer via `LoadBalancer` Service |
-| Manual metrics-server install | Usually pre-installed on AKS |
-| `kubectl apply -f edgeprocessor.yaml` | `k8s/deployment.yaml` + supporting manifests |
+
+| EKS (Splunk doc)                      | AKS (this repo)                                         |
+| ------------------------------------- | ------------------------------------------------------- |
+| Amazon ECR                            | Azure Container Registry (ACR)                          |
+| AWS NLB via `LoadBalancer` Service    | Azure Standard Load Balancer via `LoadBalancer` Service |
+| Manual metrics-server install         | Usually pre-installed on AKS                            |
+| `kubectl apply -f edgeprocessor.yaml` | `k8s/deployment.yaml` + supporting manifests            |
+
 
 ## What’s in this repo
 
@@ -50,10 +52,10 @@ Splunk’s downloadable `edgeprocessor.yaml` and `entrypoint.sh` are not publicl
 3. **Edge Processor group** already created in Splunk UI
 4. **Azure subscription** with permissions to create AKS, ACR, and Load Balancers
 5. Local tools:
-   - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) (`az`)
-   - [kubectl](https://kubernetes.io/docs/tasks/tools/)
-   - [Docker](https://docs.docker.com/get-docker/)
-   - `jq` and `curl`
+  - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) (`az`)
+  - [kubectl](https://kubernetes.io/docs/tasks/tools/)
+  - [Docker](https://docs.docker.com/get-docker/)
+  - `jq` and `curl`
 
 ---
 
@@ -93,33 +95,29 @@ git remote add origin https://github.com/YOUR_USERNAME/EP_AKS.git
 git push -u origin main
 ```
 
-2. Run the workflow: **GitHub repo → Actions → "Build Edge Processor Image" → Run workflow**
-
-   Or push any change under `docker/` — the workflow runs automatically.
-
-3. After it succeeds, your image is at:
+1. Run the workflow: **GitHub repo → Actions → "Build Edge Processor Image" → Run workflow**
+  Or push any change under `docker/` — the workflow runs automatically.
+2. After it succeeds, your image is at:
 
 ```
 ghcr.io/YOUR_USERNAME/edgeprocessor:latest
 ```
 
-4. Link the package to your repo (first time only): **GitHub profile → Packages → edgeprocessor → Package settings → Connect repository**
-
-5. Create AKS (no ACR):
+1. Link the package to your repo (first time only): **GitHub profile → Packages → edgeprocessor → Package settings → Connect repository**
+2. Create AKS (no ACR):
 
 ```bash
 ./scripts/setup-aks-no-acr.sh ep-rg ep-aks eastus
 ```
 
-6. Let AKS pull from GHCR (private package — recommended):
-
-   Create a GitHub PAT with **`read:packages`** scope at [github.com/settings/tokens](https://github.com/settings/tokens)
+1. Let AKS pull from GHCR (private package — recommended):
+  Create a GitHub PAT with `**read:packages**` scope at [github.com/settings/tokens](https://github.com/settings/tokens)
 
 ```bash
 ./scripts/create-ghcr-secret.sh YOUR_USERNAME ghp_xxxxxxxx
 ```
 
-7. Update `k8s/deployment.yaml`:
+1. Update `k8s/deployment.yaml`:
 
 ```yaml
 imagePullSecrets:
@@ -171,7 +169,7 @@ image: yourusername/edgeprocessor:latest
 ./scripts/create-registry-secret.sh dockerhub yourusername <access-token>
 ```
 
-4. Uncomment `imagePullSecrets` in `k8s/deployment.yaml`:
+1. Uncomment `imagePullSecrets` in `k8s/deployment.yaml`:
 
 ```yaml
 imagePullSecrets:
@@ -298,11 +296,13 @@ kubectl apply -f k8s/configmap.yaml
 
 Update `k8s/deployment.yaml`:
 
-| Field | Value |
-|---|---|
-| `image` | `mycompanyacr.azurecr.io/edgeprocessor:latest` |
-| `DMX_HOST` | Your control plane hostname (no `https://`) |
+
+| Field                 | Value                                              |
+| --------------------- | -------------------------------------------------- |
+| `image`               | `mycompanyacr.azurecr.io/edgeprocessor:latest`     |
+| `DMX_HOST`            | Your control plane hostname (no `https://`)        |
 | `configMapKeyRef.key` | Key matching your Edge Processor name in ConfigMap |
+
 
 If package auto-discovery fails, copy `SPLUNK_EDGE_PACKAGE_URL` and `SPLUNK_EDGE_PACKAGE_CHECKSUM` from the **Manage instances** install script in Splunk UI and uncomment those env vars.
 
@@ -405,14 +405,16 @@ Pod logs also land under `/opt/splunk-edge/splunk-edge/var/log/edge.log` inside 
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| Pod `CrashLoopBackOff` | Bad token, wrong `GROUP_ID`, or control plane unreachable | Check logs; verify secret and ConfigMap; test `curl https://$DMX_HOST:8089` from a debug pod |
-| Package download fails | API discovery path differs by Splunk version | Set `SPLUNK_EDGE_PACKAGE_URL` from Manage instances script |
-| TLS errors | Self-signed cert on control plane | Set `DMX_INSECURE=true` (lab only) or mount trusted CA |
-| `ImagePullBackOff` | ACR not attached | Run `az aks update --attach-acr mycompanyacr` or add `imagePullSecrets` |
-| Service stuck `<pending>` | LB quota / subnet | Check `kubectl describe svc ep-service`; verify Azure LB permissions |
-| Orphaned instances in UI | Pod killed without offboard | Use graceful shutdown; entrypoint and `preStop` hook call `offboard` |
+
+| Symptom                   | Likely cause                                              | Fix                                                                                          |
+| ------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Pod `CrashLoopBackOff`    | Bad token, wrong `GROUP_ID`, or control plane unreachable | Check logs; verify secret and ConfigMap; test `curl https://$DMX_HOST:8089` from a debug pod |
+| Package download fails    | API discovery path differs by Splunk version              | Set `SPLUNK_EDGE_PACKAGE_URL` from Manage instances script                                   |
+| TLS errors                | Self-signed cert on control plane                         | Set `DMX_INSECURE=true` (lab only) or mount trusted CA                                       |
+| `ImagePullBackOff`        | ACR not attached                                          | Run `az aks update --attach-acr mycompanyacr` or add `imagePullSecrets`                      |
+| Service stuck `<pending>` | LB quota / subnet                                         | Check `kubectl describe svc ep-service`; verify Azure LB permissions                         |
+| Orphaned instances in UI  | Pod killed without offboard                               | Use graceful shutdown; entrypoint and `preStop` hook call `offboard`                         |
+
 
 **Debug pod for network tests:**
 
@@ -450,3 +452,4 @@ az group delete --name ep-rg --yes
 - [Load balancing traffic to Edge Processors in Amazon EKS](https://lantern.splunk.com/Platform_Data_Management/Transform_Pipelines/Load_balancing_traffic_to_Edge_Processors_in_Amazon_EKS)
 - [Azure AKS documentation](https://learn.microsoft.com/en-us/azure/aks/)
 - [Attach ACR to AKS](https://learn.microsoft.com/en-us/azure/aks/cluster-container-registry-integration)
+

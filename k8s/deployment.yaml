@@ -15,15 +15,15 @@ spec:
       labels:
         app: ep
     spec:
-      # Required for private Docker Hub / GHCR / any registry not attached to AKS:
-      # imagePullSecrets:
-      #   - name: registry-pull-secret
+      # Required for private GHCR package:
+      imagePullSecrets:
+        - name: registry-pull-secret
       containers:
         - name: ep
           # GitHub:     ghcr.io/yourusername/edgeprocessor:latest
           # Docker Hub: yourusername/edgeprocessor:latest
           # ACR:        myacr.azurecr.io/edgeprocessor:latest
-          image: ghcr.io/yourusername/edgeprocessor:latest
+          image: ghcr.io/joshal-source/edgeprocessor:latest
           imagePullPolicy: Always
           env:
             - name: DMX_TOKEN
@@ -37,17 +37,19 @@ spec:
                   name: ep-instance-guids
                   key: EP_CORP_DC_1
             - name: DMX_HOST
-              value: "YOUR_DMX_CONTROL_PLANE_HOST"
+              value: "ec2-3-138-156-139.us-east-2.compute.amazonaws.com"
             - name: DMX_ENV
               value: "production"
-            # Optional: copy from Manage instances install script if auto-discovery fails
-            # - name: SPLUNK_EDGE_PACKAGE_URL
-            #   value: "https://YOUR_DMX_HOST:8089/servicesNS/-/splunk_pipeline_builders/dmx/packages/splunk-edge/..."
+            # REQUIRED: copy from Splunk UI → Edge Processor → Manage instances → Install script
+            # Run: ./scripts/extract-package-from-install-script.sh install-script.txt
+            - name: SPLUNK_EDGE_PACKAGE_URL
+              value: "https://ec2-3-138-156-139.us-east-2.compute.amazonaws.com:8089/servicesNS/-/splunk_pipeline_builders/dmx/packages/splunk-edge/v0.1.637-aaeca567-20260319t172332/linux-amd64/splunk-edge.tar.gz"
+            # SHA-256 from install script (requires updated container image for verification)
             # - name: SPLUNK_EDGE_PACKAGE_CHECKSUM
-            #   value: "sha512-checksum-from-ui"
-            # Set to "true" only for lab environments with self-signed TLS on the control plane
-            # - name: DMX_INSECURE
-            #   value: "true"
+            #   value: "3debf5e04e28d0cf5b7a4a21478ad6aa004b2ad91d125e467306720fc52698a1"
+            # Self-signed TLS on control plane — required for this environment
+            - name: DMX_INSECURE
+              value: "true"
           resources:
             requests:
               cpu: "2000m"
