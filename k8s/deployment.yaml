@@ -44,9 +44,9 @@ spec:
             # Run: ./scripts/extract-package-from-install-script.sh install-script.txt
             - name: SPLUNK_EDGE_PACKAGE_URL
               value: "https://ec2-3-138-156-139.us-east-2.compute.amazonaws.com:8089/servicesNS/-/splunk_pipeline_builders/dmx/packages/splunk-edge/v0.1.637-aaeca567-20260319t172332/linux-amd64/splunk-edge.tar.gz"
-            # SHA-256 from install script (requires updated container image for verification)
-            # - name: SPLUNK_EDGE_PACKAGE_CHECKSUM
-            #   value: "3debf5e04e28d0cf5b7a4a21478ad6aa004b2ad91d125e467306720fc52698a1"
+            # SHA-256 from install script
+            - name: SPLUNK_EDGE_PACKAGE_CHECKSUM
+              value: "3debf5e04e28d0cf5b7a4a21478ad6aa004b2ad91d125e467306720fc52698a1"
             # Self-signed TLS on control plane — required for this environment
             - name: DMX_INSECURE
               value: "true"

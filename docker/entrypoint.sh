@@ -86,13 +86,8 @@ verify_package_checksum() {
 }
 
 write_config_yaml() {
-  local scheme="http"
-  if [[ "${DMX_USE_HTTPS_CONFIG:-false}" == "true" ]]; then
-    scheme="https"
-  fi
-
   cat > ./splunk-edge/etc/config.yaml <<EOF
-url: ${scheme}://${DMX_HOST}:8089/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management
+url: https://${DMX_HOST}:8089/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management
 groupId: ${GROUP_ID}
 env: ${DMX_ENV}
 EOF
