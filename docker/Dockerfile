@@ -7,14 +7,15 @@ RUN apt-get update \
         ca-certificates \
         curl \
         jq \
-        nginx \
         openssl \
+        python3 \
         tar \
         coreutils \
     && rm -rf /var/lib/apt/lists/*
 
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY mgmt-proxy.py /mgmt-proxy.py
+RUN chmod +x /entrypoint.sh /mgmt-proxy.py
 
 WORKDIR /opt/splunk-edge
 
