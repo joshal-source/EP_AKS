@@ -7,8 +7,9 @@ set -euo pipefail
 : "${DMX_ENV:=production}"
 
 WORKDIR="${WORKDIR:-/opt/splunk-edge}"
+MGMT_PORT="${MGMT_PORT:-8089}"
+MGMT_PROXY_ENABLED="${MGMT_PROXY_ENABLED:-false}"
 PROXY_CERT_DIR="${PROXY_CERT_DIR:-/tmp/splunk-mgmt-proxy}"
-MGMT_PROXY_PORT="${MGMT_PROXY_PORT:-8089}"
 CURL_OPTS=(-fsSL)
 if [[ "${DMX_INSECURE:-false}" == "true" ]]; then
   CURL_OPTS+=(-k)
@@ -67,8 +68,9 @@ start_https_rewrite_proxy() {
 
   export PROXY_CERT="${PROXY_CERT_DIR}/proxy.crt"
   export PROXY_KEY="${PROXY_CERT_DIR}/proxy.key"
+  export MGMT_PROXY_PORT="${MGMT_PORT}"
 
-  log "Starting TLS rewrite proxy on 127.0.0.1:${MGMT_PROXY_PORT} -> ${UPSTREAM_IP}:8089"
+  log "Starting TLS rewrite proxy on 127.0.0.1:${MGMT_PORT} -> ${UPSTREAM_IP}:${MGMT_PORT}"
   python3 /mgmt-proxy.py &
   MGMT_PROXY_PID=$!
   sleep 1
@@ -121,9 +123,14 @@ verify_package_checksum() {
   log "Package checksum verified"
 }
 
+mgmt_base_url() {
+  printf 'https://%s:%s/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management' \
+    "${DMX_HOST}" "${MGMT_PORT}"
+}
+
 write_config_yaml() {
   cat > ./splunk-edge/etc/config.yaml <<EOF
-url: https://${DMX_HOST}:${MGMT_PROXY_PORT}/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management
+url: $(mgmt_base_url)
 groupId: ${GROUP_ID}
 env: ${DMX_ENV}
 EOF
@@ -152,7 +159,7 @@ download_edge_package() {
   curl "${CURL_OPTS[@]}" \
     -H "Authorization: Bearer ${DMX_TOKEN}" \
     -H "Host: ${DMX_HOST}" \
-    --resolve "${DMX_HOST}:8089:${UPSTREAM_IP}" \
+    --resolve "${DMX_HOST}:${MGMT_PORT}:${UPSTREAM_IP}" \
     -o splunk-edge.tar.gz \
     "${package_url}"
 
@@ -167,7 +174,7 @@ start_splunk_edge() {
   mkdir -p ./splunk-edge/var
   printf '%s' "${DMX_TOKEN}" > ./splunk-edge/var/token
   mkdir -p ./splunk-edge/var/log
-  log "Starting splunk-edge bootstrap"
+  log "Starting splunk-edge bootstrap (proxy=${MGMT_PROXY_ENABLED})"
   nohup ./splunk-edge/bin/splunk-edge run \
     >> ./splunk-edge/var/log/install-splunk-edge.out 2>&1 </dev/null &
 }
@@ -186,6 +193,10 @@ wait_for_edge_processor() {
 
 resolve_upstream_ip
 download_edge_package
-start_https_rewrite_proxy
+if [[ "${MGMT_PROXY_ENABLED}" == "true" ]]; then
+  start_https_rewrite_proxy
+else
+  log "Direct HTTPS to ${DMX_HOST}:${MGMT_PORT} (Splunk proxyHostPort test)"
+fi
 start_splunk_edge
 wait_for_edge_processor
