@@ -7,7 +7,7 @@ set -euo pipefail
 : "${DMX_ENV:=production}"
 
 WORKDIR="${WORKDIR:-/opt/splunk-edge}"
-ARCH="${SPLUNK_EDGE_ARCH:-linux-amd64}"
+MGMT_PROXY_PORT="${MGMT_PROXY_PORT:-18089}"
 CURL_OPTS=(-fsSL)
 if [[ "${DMX_INSECURE:-false}" == "true" ]]; then
   CURL_OPTS+=(-k)
@@ -19,6 +19,9 @@ log() {
 
 cleanup() {
   log "Shutdown signal received; offboarding Edge Processor instance"
+  if [[ -n "${MGMT_PROXY_PID:-}" ]]; then
+    kill "${MGMT_PROXY_PID}" 2>/dev/null || true
+  fi
   if [[ -d "${WORKDIR}/splunk-edge/bin" ]]; then
     cd "${WORKDIR}"
     if [[ ! -f "${WORKDIR}/splunk-edge/var/token" ]]; then
@@ -37,6 +40,17 @@ cleanup() {
 }
 
 trap cleanup SIGTERM SIGINT
+
+start_mgmt_proxy() {
+  log "Starting mgmt API proxy on 127.0.0.1:${MGMT_PROXY_PORT} (rewrites http:// to https:// for ${DMX_HOST})"
+  python3 /mgmt-proxy.py &
+  MGMT_PROXY_PID=$!
+  sleep 1
+  if ! kill -0 "${MGMT_PROXY_PID}" 2>/dev/null; then
+    log "ERROR: mgmt proxy failed to start"
+    exit 1
+  fi
+}
 
 discover_package_url() {
   if [[ -n "${SPLUNK_EDGE_PACKAGE_URL:-}" ]]; then
@@ -91,7 +105,7 @@ verify_package_checksum() {
 
 write_config_yaml() {
   cat > ./splunk-edge/etc/config.yaml <<EOF
-url: https://${DMX_HOST}:8089/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management
+url: http://127.0.0.1:${MGMT_PROXY_PORT}/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management
 groupId: ${GROUP_ID}
 env: ${DMX_ENV}
 EOF
@@ -104,38 +118,6 @@ EOF
   fi
 }
 
-stage_splunksup_package() {
-  local package_url version_path version_id sup_url stage_dir tmp_tgz
-
-  package_url="$(discover_package_url)"
-  version_path="$(echo "${package_url}" | sed -n 's|.*/splunk-edge/\([^/]*\)/linux-amd64/.*|\1|p')"
-  if [[ -z "${version_path}" ]]; then
-    log "WARNING: Could not parse version from package URL; skipping splunksup pre-stage"
-    return 0
-  fi
-
-  version_id="$(echo "${version_path}" | sed 's/^v[0-9.]*-//' | tr -d '-')"
-  sup_url="https://${DMX_HOST}:8089/servicesNS/-/splunk_pipeline_builders/dmx/packages/splunksup/${version_path}/linux-amd64/splunksup.tar.gz"
-  stage_dir="${WORKDIR}/splunk-edge/var/sup-run/pkg-splunksup${version_id}"
-  tmp_tgz="${WORKDIR}/splunksup.tar.gz"
-
-  if [[ -x "${stage_dir}/splunksup" ]]; then
-    log "splunksup already staged at ${stage_dir}"
-    return 0
-  fi
-
-  log "Pre-staging splunksup via HTTPS (${stage_dir})"
-  curl "${CURL_OPTS[@]}" \
-    -H "Authorization: Bearer ${DMX_TOKEN}" \
-    -o "${tmp_tgz}" \
-    "${sup_url}"
-
-  mkdir -p "${stage_dir}"
-  tar -xzf "${tmp_tgz}" -C "${stage_dir}"
-  rm -f "${tmp_tgz}"
-  log "splunksup staged successfully"
-}
-
 install_edge_processor() {
   mkdir -p "${WORKDIR}"
   cd "${WORKDIR}"
@@ -143,6 +125,12 @@ install_edge_processor() {
   local package_url checksum
   package_url="$(discover_package_url)"
   checksum="$(discover_package_checksum)"
+
+  # Always download the bootstrap package over HTTPS (install script may use http://).
+  if [[ "${package_url}" == http://* ]]; then
+    package_url="https://${package_url#http://}"
+    log "Using HTTPS for package download"
+  fi
 
   log "Downloading Edge Processor package from ${package_url}"
   curl "${CURL_OPTS[@]}" \
@@ -154,8 +142,6 @@ install_edge_processor() {
 
   tar -xzf splunk-edge.tar.gz
   rm -f splunk-edge.tar.gz
-
-  stage_splunksup_package
 
   write_config_yaml
 
@@ -181,5 +167,6 @@ wait_for_edge_processor() {
   wait "${pid}"
 }
 
+start_mgmt_proxy
 install_edge_processor
 wait_for_edge_processor
