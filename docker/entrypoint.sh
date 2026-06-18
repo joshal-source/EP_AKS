@@ -9,6 +9,7 @@ set -euo pipefail
 WORKDIR="${WORKDIR:-/opt/splunk-edge}"
 MGMT_PORT="${MGMT_PORT:-8089}"
 MGMT_PROXY_ENABLED="${MGMT_PROXY_ENABLED:-false}"
+MGMT_PROXY_HOST="${MGMT_PROXY_HOST:-dmx-mgmt-proxy}"
 PROXY_CERT_DIR="${PROXY_CERT_DIR:-/tmp/splunk-mgmt-proxy}"
 CURL_OPTS=(-fsSL)
 if [[ "${DMX_INSECURE:-false}" == "true" ]]; then
@@ -54,16 +55,18 @@ resolve_upstream_ip() {
 
 start_https_rewrite_proxy() {
   mkdir -p "${PROXY_CERT_DIR}"
+  # Use a dedicated proxy hostname — never alias DMX_HOST to 127.0.0.1 or S2S
+  # export to the real indexer at ${DMX_HOST}:9997 will loop back into this pod.
   if [[ ! -f "${PROXY_CERT_DIR}/proxy.crt" ]]; then
     openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
       -keyout "${PROXY_CERT_DIR}/proxy.key" \
       -out "${PROXY_CERT_DIR}/proxy.crt" \
-      -subj "/CN=${DMX_HOST}" \
-      -addext "subjectAltName=DNS:${DMX_HOST}" 2>/dev/null
+      -subj "/CN=${MGMT_PROXY_HOST}" \
+      -addext "subjectAltName=DNS:${MGMT_PROXY_HOST}" 2>/dev/null
   fi
 
-  if ! grep -q "[[:space:]]${DMX_HOST}$" /etc/hosts; then
-    printf '127.0.0.1 %s\n' "${DMX_HOST}" >> /etc/hosts
+  if ! grep -q "[[:space:]]${MGMT_PROXY_HOST}$" /etc/hosts; then
+    printf '127.0.0.1 %s\n' "${MGMT_PROXY_HOST}" >> /etc/hosts
   fi
 
   export PROXY_CERT="${PROXY_CERT_DIR}/proxy.crt"
@@ -124,8 +127,12 @@ verify_package_checksum() {
 }
 
 mgmt_base_url() {
+  local host="${DMX_HOST}"
+  if [[ "${MGMT_PROXY_ENABLED}" == "true" ]]; then
+    host="${MGMT_PROXY_HOST}"
+  fi
   printf 'https://%s:%s/servicesNS/nobody/splunk_pipeline_builders/tenant/agent-management' \
-    "${DMX_HOST}" "${MGMT_PORT}"
+    "${host}" "${MGMT_PORT}"
 }
 
 write_config_yaml() {
