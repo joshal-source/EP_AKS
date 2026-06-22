@@ -1,49 +1,5 @@
 # Splunk Edge Processor on Azure AKS
 
-Run Splunk Edge Processor nodes in **Azure Kubernetes Service (AKS)** — the Azure equivalent of Splunk’s [Running Edge Processor nodes in Amazon EKS (OnPrem)](https://lantern.splunk.com/Platform_Data_Management/Transform_Pipelines/Running_Edge_Processor_nodes_in_Amazon_EKS_(OnPrem)) guide.
-
-This repo mirrors Splunk’s EKS workflow and swaps AWS-specific pieces for Azure:
-
-
-| EKS (Splunk doc)                      | AKS (this repo)                                         |
-| ------------------------------------- | ------------------------------------------------------- |
-| Amazon ECR                            | Azure Container Registry (ACR)                          |
-| AWS NLB via `LoadBalancer` Service    | Azure Standard Load Balancer via `LoadBalancer` Service |
-| Manual metrics-server install         | Usually pre-installed on AKS                            |
-| `kubectl apply -f edgeprocessor.yaml` | **Helm chart** `helm/edge-processor` + install script |
-
-
-## What’s in this repo
-
-```
-EP_AKS/
-├── docker/                  # Edge Processor container (Splunk does not ship an official image)
-│   ├── Dockerfile
-│   ├── entrypoint.sh
-│   └── mgmt-proxy.py
-├── helm/edge-processor/     # Helm chart — primary deploy path (values.yaml)
-│   ├── values.yaml
-│   ├── values-local.yaml.example
-│   └── templates/
-├── k8s/                     # Legacy flat YAML (use Helm instead)
-├── scripts/
-│   ├── setup-from-install-script.sh
-│   ├── helm-deploy.sh
-│   ├── show-ep-endpoints.sh
-│   ├── setup-aks.sh
-│   ├── setup-aks-with-acr.sh        # Optional: AKS + Azure Container Registry
-│   └── ...
-├── env.template
-└── .env.example
-```
-
-Splunk’s downloadable `edgeprocessor.yaml` and `entrypoint.sh` are not publicly fetchable from Lantern, so this repo implements them from Splunk’s documented behavior in:
-
-- [Building an Edge Processor container (OnPrem)](https://lantern.splunk.com/Platform_Data_Management/Transform_Pipelines/Building_an_Edge_Processor_container_(OnPrem))
-- [Establishing authentication requirements (OnPrem)](https://lantern.splunk.com/Platform_Data_Management/Transform_Pipelines/Establishing_authentication_requirements_for_node_scaling_automation_(OnPrem))
-- [Understanding the Edge Processor startup script (OnPrem)](https://lantern.splunk.com/Platform_Data_Management/Transform_Pipelines/Understanding_the_Edge_Processor_startup_script_(OnPrem))
-- [Load balancing traffic to Edge Processors in Amazon EKS](https://lantern.splunk.com/Platform_Data_Management/Transform_Pipelines/Load_balancing_traffic_to_Edge_Processors_in_Amazon_EKS)
-
 ---
 
 ## Prerequisites
