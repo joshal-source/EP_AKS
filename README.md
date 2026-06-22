@@ -17,6 +17,58 @@
 
 ---
 
+## Architecture (default deploy)
+
+After the quick start flow, Azure and Kubernetes look like this:
+
+```mermaid
+flowchart LR
+  subgraph sources["Data sources"]
+    HEC["HEC clients"]
+    UF["Forwarders / S2S"]
+  end
+
+  subgraph azure["Azure — resource group ep-rg"]
+    subgraph aks["AKS cluster ep-aks — 3 worker nodes Standard_D4s_v5"]
+      subgraph ns["namespace splunk-edge"]
+        dep["Deployment ep-deployment<br/>2 EP pods default HPA 2–10"]
+        svc["Service ep-service"]
+        hpa["HorizontalPodAutoscaler"]
+        cm["ConfigMap ep-instance-guids<br/>GROUP_ID"]
+        sec["Secret edge-processor-secrets<br/>provisioning JWT"]
+      end
+    end
+    lb["Azure Standard Load Balancer<br/>public EXTERNAL-IP"]
+  end
+
+  ghcr["GHCR<br/>edgeprocessor:latest"]
+  splunk["Splunk control plane<br/>DMX_HOST"]
+
+  HEC -->|"TCP 8088"| lb
+  UF -->|"TCP 9997"| lb
+  lb --> svc
+  svc --> dep
+  hpa --> dep
+  cm --> dep
+  sec --> dep
+  ghcr -.->|"image pull"| dep
+  dep -->|"TCP 8089 OpAMP + package download"| splunk
+  dep -->|"TCP 9997 processed data S2S"| splunk
+```
+
+| Layer | Default | Purpose |
+| ----- | ------- | ------- |
+| **AKS cluster** | `ep-aks` in `ep-rg` | Runs Kubernetes |
+| **Worker nodes** | 3 × `Standard_D4s_v5` | Host EP pods (Ubuntu 22.04) |
+| **EP pods** | 2 (HPA scales 2–10) | One Splunk instance per pod, same Edge Processor group |
+| **LoadBalancer** | `ep-service` public IP | Single entry for HEC `:8088` and S2S `:9997` |
+| **Image** | `ghcr.io/.../edgeprocessor:latest` | Built by GitHub Actions; pulled via `registry-pull-secret` |
+| **Splunk outbound** | AKS SNAT IP → `:8089`, `:9997` | Registration, packages, and exported data to your indexer |
+
+Each pod runs `splunk-edge`, `splunksup`, and `edge_linux_amd64`. All replicas share one **GROUP_ID** from the install script and appear as separate instances under the same Edge Processor group in Splunk UI.
+
+---
+
 ## Quick start
 
 Complete **Splunk control plane setup** below first, then:
