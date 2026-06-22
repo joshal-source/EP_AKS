@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "edge-processor.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "edge-processor.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.hpa.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "edge-processor.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: {{ .Values.strategy.type }}
+    rollingUpdate:
+      maxSurge: {{ .Values.strategy.rollingUpdate.maxSurge }}
+      maxUnavailable: {{ .Values.strategy.rollingUpdate.maxUnavailable }}
+  template:
+    metadata:
+      labels:
+        {{- include "edge-processor.selectorLabels" . | nindent 8 }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ep
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: DMX_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secret.name }}
+                  key: {{ .Values.secret.key }}
+            - name: GROUP_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.configMap.name }}
+                  key: {{ .Values.splunk.groupConfigMapKey }}
+            - name: DMX_HOST
+              value: {{ required "splunk.dmxHost is required" .Values.splunk.dmxHost | quote }}
+            - name: DMX_ENV
+              value: {{ .Values.splunk.dmxEnv | quote }}
+            - name: SPLUNK_EDGE_PACKAGE_URL
+              value: {{ required "splunk.packageUrl is required" .Values.splunk.packageUrl | quote }}
+            - name: SPLUNK_EDGE_PACKAGE_CHECKSUM
+              value: {{ required "splunk.packageChecksum is required" .Values.splunk.packageChecksum | quote }}
+            - name: DMX_INSECURE
+              value: {{ ternary "true" "false" .Values.splunk.dmxInsecure | quote }}
+            - name: MGMT_PROXY_ENABLED
+              value: {{ ternary "true" "false" .Values.splunk.mgmtProxyEnabled | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          ports:
+            - name: s2s
+              containerPort: {{ .Values.service.ports.s2s }}
+              protocol: TCP
+            - name: hec
+              containerPort: {{ .Values.service.ports.hec }}
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pidof splunk-edge
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pidof splunk-edge
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}

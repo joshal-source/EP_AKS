@@ -4,10 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-kubectl apply -f "${ROOT_DIR}/k8s/namespace.yaml"
-kubectl apply -f "${ROOT_DIR}/k8s/configmap.example.yaml"
-kubectl apply -f "${ROOT_DIR}/k8s/deployment.yaml"
-kubectl apply -f "${ROOT_DIR}/k8s/service.yaml"
-kubectl apply -f "${ROOT_DIR}/k8s/hpa.yaml"
+if [[ ! -f "${ROOT_DIR}/helm/edge-processor/values-install.yaml" ]]; then
+  echo "ERROR: helm/edge-processor/values-install.yaml not found." >&2
+  echo "Run: ./scripts/setup-from-install-script.sh install-script.txt" >&2
+  exit 1
+fi
 
-kubectl get pods,svc,hpa -n splunk-edge
+"${SCRIPT_DIR}/helm-deploy.sh" "$@"
+"${SCRIPT_DIR}/show-ep-endpoints.sh" "${NAMESPACE:-splunk-edge}" ep-service || true

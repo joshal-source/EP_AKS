@@ -6,6 +6,6 @@ metadata:
   name: ep-instance-guids
   namespace: splunk-edge
 data:
-  EP_CORP_DC_1: "d81d22ae-6913-4ccf-a7d1-4afa6c7081bd"
-  # Add one key per Edge Processor group name:
-  # EP_AZURE_EAST_1: "your-guid-here"
+  EP_INSTANCE: "your-group-guid-from-install-script"
+  # Or use a descriptive key with --group-key when running setup-from-install-script.sh:
+  # EP_CORP_DC_1: "your-guid-here"

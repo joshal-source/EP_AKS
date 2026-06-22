@@ -1,0 +1,82 @@
+# Default values for edge-processor.
+# Override with values-install.yaml (from install script) and/or values-local.yaml.
+
+namespace: splunk-edge
+
+image:
+  repository: ghcr.io/joshal-source/edgeprocessor
+  tag: latest
+  pullPolicy: Always
+
+imagePullSecrets:
+  - name: registry-pull-secret
+
+# Used when hpa.enabled is false
+replicaCount: 2
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  cpuTarget: 70
+  memoryTarget: 70
+
+# Avoid a third pod during rollouts (prevents extra Splunk instance registrations)
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 0
+    maxUnavailable: 1
+
+resources:
+  requests:
+    cpu: 2000m
+    memory: 2Gi
+  limits:
+    cpu: 4000m
+    memory: 4Gi
+
+terminationGracePeriodSeconds: 120
+
+splunk:
+  # Set via values-install.yaml from setup-from-install-script.sh
+  dmxHost: ""
+  dmxEnv: production
+  groupId: ""
+  groupConfigMapKey: EP_INSTANCE
+  packageUrl: ""
+  packageChecksum: ""
+  dmxInsecure: true
+  mgmtProxyEnabled: true
+
+secret:
+  # Secret is created by scripts (install script JWT). Helm references it only.
+  create: false
+  name: edge-processor-secrets
+  key: token
+
+configMap:
+  name: ep-instance-guids
+
+service:
+  name: ep-service
+  type: LoadBalancer
+  # Uncomment for internal Azure LB only:
+  # annotations:
+  #   service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+  annotations: {}
+  ports:
+    s2s: 9997
+    hec: 8088
+
+probes:
+  liveness:
+    initialDelaySeconds: 120
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 5
+  readiness:
+    initialDelaySeconds: 60
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3

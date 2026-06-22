@@ -1,0 +1,11 @@
+{{- if .Values.splunk.groupId }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.configMap.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "edge-processor.labels" . | nindent 4 }}
+data:
+  {{ .Values.splunk.groupConfigMapKey }}: {{ .Values.splunk.groupId | quote }}
+{{- end }}

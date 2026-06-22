@@ -1,0 +1,35 @@
+# Copy to values-local.yaml and edit (gitignored).
+# Applied after values.yaml and before values-install.yaml from the install script.
+
+# replicaCount: 1
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+
+# image:
+#   repository: ghcr.io/yourusername/edgeprocessor
+#   tag: latest
+
+resources:
+  requests:
+    cpu: 2000m
+    memory: 2Gi
+  limits:
+    cpu: 4000m
+    memory: 4Gi
+
+# Rolling update: maxSurge 0 avoids a third pod (and Splunk ghost instance) during deploys
+strategy:
+  rollingUpdate:
+    maxSurge: 0
+    maxUnavailable: 1
+
+# service:
+#   type: LoadBalancer
+#   annotations:
+#     service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+
+# splunk:
+#   groupConfigMapKey: EP_CORP_DC_1

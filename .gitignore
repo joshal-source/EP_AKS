@@ -6,3 +6,5 @@ secrets/
 k8s/configmap.yaml
 k8s/secret.yaml
 install-script.txt
+helm/edge-processor/values-install.yaml
+helm/edge-processor/values-local.yaml

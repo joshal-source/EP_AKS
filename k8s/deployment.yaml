@@ -35,7 +35,7 @@ spec:
               valueFrom:
                 configMapKeyRef:
                   name: ep-instance-guids
-                  key: EP_CORP_DC_1
+                  key: EP_INSTANCE
             - name: DMX_HOST
               value: "ec2-3-138-156-139.us-east-2.compute.amazonaws.com"
             - name: DMX_ENV
