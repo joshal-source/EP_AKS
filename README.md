@@ -29,11 +29,10 @@ flowchart LR
   end
 
   subgraph azure["Azure — resource group ep-rg"]
-    subgraph aks["AKS cluster ep-aks — 3 worker nodes Standard_D4s_v5"]
+    subgraph aks["AKS cluster ep-aks — worker nodes from .env"]
       subgraph ns["namespace splunk-edge"]
-        dep["Deployment ep-deployment<br/>2 EP pods default HPA 2–10"]
+        dep["Deployment ep-deployment<br/>replicaCount pods"]
         svc["Service ep-service"]
-        hpa["HorizontalPodAutoscaler"]
         cm["ConfigMap ep-instance-guids<br/>GROUP_ID"]
         sec["Secret edge-processor-secrets<br/>provisioning JWT"]
       end
@@ -48,7 +47,6 @@ flowchart LR
   UF -->|"TCP 9997"| lb
   lb --> svc
   svc --> dep
-  hpa --> dep
   cm --> dep
   sec --> dep
   ghcr -.->|"image pull"| dep
@@ -59,8 +57,8 @@ flowchart LR
 | Layer | Default | Purpose |
 | ----- | ------- | ------- |
 | **AKS cluster** | `ep-aks` in `ep-rg` | Runs Kubernetes |
-| **Worker nodes** | 3 × `Standard_D4s_v5` | Host EP pods (Ubuntu 22.04) |
-| **EP pods** | 2 (HPA scales 2–10) | One Splunk instance per pod, same Edge Processor group |
+| **Worker nodes** | 2 × `Standard_D4s_v5` (from `.env`) | Host EP pods (Ubuntu 22.04) |
+| **EP pods** | 2 (`replicaCount` in values) | One Splunk instance per pod, same Edge Processor group |
 | **LoadBalancer** | `ep-service` public IP | Single entry for HEC `:8088` and S2S `:9997` |
 | **Image** | `ghcr.io/.../edgeprocessor:latest` | Built by GitHub Actions; pulled via `registry-pull-secret` |
 | **Splunk outbound** | AKS SNAT IP → `:8089`, `:9997` | Registration, packages, and exported data to your indexer |
@@ -71,40 +69,83 @@ Each pod runs `splunk-edge`, `splunksup`, and `edge_linux_amd64`. All replicas s
 
 ## Quick start
 
-Complete **Splunk control plane setup** below first, then:
+Complete **[Splunk control plane setup](#splunk-control-plane-setup-do-this-first)** on your Data Management host before deploying to AKS.
+
+### 1. Clone and configure Azure
 
 ```bash
 cd EP_AKS
 cp env.template .env
-# Splunk UI → Manage instances → Install → save as install-script.txt
+```
 
+Edit `.env` if needed:
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `AZURE_RESOURCE_GROUP` | `ep-rg` | Azure resource group |
+| `AZURE_LOCATION` | `eastus` | Region |
+| `AKS_CLUSTER_NAME` | `ep-aks` | AKS cluster name |
+| `AKS_NODE_COUNT` | `2` | Worker nodes |
+| `AKS_NODE_VM_SIZE` | `Standard_D4s_v5` | VM SKU (4 vCPU, 16 GiB) |
+
+### 2. (Optional) EP pod count and sizing
+
+Fixed pod count — no autoscaling. Set `replicaCount` before the first deploy:
+
+```bash
+cp helm/edge-processor/values-local.yaml.example helm/edge-processor/values-local.yaml
+```
+
+Edit `helm/edge-processor/values-local.yaml`:
+
+```yaml
+replicaCount: 2   # static EP pod count
+```
+
+Ensure nodes can fit all pods (`replicaCount` × `resources` per pod). Increase `AKS_NODE_COUNT` or `AKS_NODE_VM_SIZE` in `.env` if needed.
+
+### 3. Splunk install script
+
+In Splunk UI → **Manage instances** → **Install** → download and save as `install-script.txt` in the repo root.
+
+This file contains the **provisioning JWT** (`ep-instance` audience) and `GROUP_ID` — not your HEC token.
+
+### 4. Create AKS and deploy
+
+```bash
 az login
+
 ./scripts/setup-aks.sh
 ./scripts/create-ghcr-secret.sh YOUR_GITHUB_USER ghp_<pat>
 ./scripts/setup-from-install-script.sh install-script.txt --apply
 ./scripts/show-ep-endpoints.sh
 ```
 
-**Optional** — change node size/count or pod replicas before deploy:
+`create-ghcr-secret.sh` needs a GitHub PAT with **`read:packages`** scope.
+
+`setup-from-install-script.sh --apply` parses the install script, writes `values-install.yaml`, and runs Helm.
+
+`show-ep-endpoints.sh` waits for the LoadBalancer IP and prints HEC/S2S URLs plus a sample `curl`.
+
+### 5. Verify
+
+1. Splunk UI → **Manage instances** → EP instances show **Healthy**
+2. Open Splunk firewall for AKS **outbound SNAT IP** on **8089** (OpAMP/packages) and **9997** (S2S data)
+3. Send a test HEC event using your **HEC token** from the Splunk UI (not the install-script JWT):
 
 ```bash
-cp helm/edge-processor/values-local.yaml.example helm/edge-processor/values-local.yaml
-# edit .env (AKS_NODE_COUNT, AKS_NODE_VM_SIZE) and/or values-local.yaml (hpa, resources)
+./scripts/show-ep-endpoints.sh   # prints curl example with LB IP
 ```
 
-**Verify**
-
-- Splunk UI → Manage instances → instances **Healthy**
-- HEC test uses your **HEC token** (not the JWT from the install script)
-- Open Splunk firewall for new AKS **outbound SNAT IP** on ports **8089** and **9997**
-
-**Redeploy** (cluster already exists):
+### Redeploy (cluster already exists)
 
 ```bash
 az aks get-credentials --resource-group ep-rg --name ep-aks --overwrite-existing
 ./scripts/setup-from-install-script.sh install-script.txt --apply
 ./scripts/show-ep-endpoints.sh
 ```
+
+Re-download `install-script.txt` from Splunk if you regenerated the provisioning token or changed the EP group.
 
 ---
 
@@ -198,9 +239,7 @@ cp helm/edge-processor/values-local.yaml.example helm/edge-processor/values-loca
 
 | values key | Controls |
 | ---------- | -------- |
-| `replicaCount` | Pod count when `hpa.enabled: false` |
-| `hpa.minReplicas` / `maxReplicas` | Autoscaling bounds (default 2–10) |
-| `hpa.enabled` | Set `false` for a fixed pod count |
+| `replicaCount` | Fixed EP pod count (default 2) |
 | `resources` | CPU/memory per pod |
 | `image.repository` / `tag` | Container image |
 | `strategy.rollingUpdate.maxSurge` | `0` = no extra pod during rollouts (avoids 3rd Splunk instance) |

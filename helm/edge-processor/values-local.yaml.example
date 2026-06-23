@@ -1,12 +1,7 @@
 # Copy to values-local.yaml and edit (gitignored).
 # Applied after values.yaml and before values-install.yaml from the install script.
 
-# replicaCount: 1
-
-hpa:
-  enabled: true
-  minReplicas: 2
-  maxReplicas: 5
+replicaCount: 2
 
 # image:
 #   repository: ghcr.io/yourusername/edgeprocessor

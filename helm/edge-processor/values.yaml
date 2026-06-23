@@ -11,15 +11,8 @@ image:
 imagePullSecrets:
   - name: registry-pull-secret
 
-# Used when hpa.enabled is false
+# Fixed EP pod count (set replicaCount in values-local.yaml to override)
 replicaCount: 2
-
-hpa:
-  enabled: true
-  minReplicas: 2
-  maxReplicas: 10
-  cpuTarget: 70
-  memoryTarget: 70
 
 # Avoid a third pod during rollouts (prevents extra Splunk instance registrations)
 strategy:

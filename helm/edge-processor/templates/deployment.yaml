@@ -6,9 +6,7 @@ metadata:
   labels:
     {{- include "edge-processor.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.hpa.enabled }}
   replicas: {{ .Values.replicaCount }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "edge-processor.selectorLabels" . | nindent 6 }}

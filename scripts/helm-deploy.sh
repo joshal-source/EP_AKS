@@ -106,4 +106,4 @@ echo "Running: helm ${HELM_ARGS[*]}"
 helm "${HELM_ARGS[@]}"
 
 echo ""
-kubectl get pods,svc,hpa -n "${NAMESPACE}"
+kubectl get pods,svc -n "${NAMESPACE}"

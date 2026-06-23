@@ -123,6 +123,6 @@ else
   echo "To deploy:"
   echo "  $0 ${INSTALL_SCRIPT} --apply"
   echo ""
-  echo "Customize replicas, CPU, HPA, etc.:"
+  echo "Customize replicas, CPU, etc.:"
   echo "  cp helm/edge-processor/values-local.yaml.example helm/edge-processor/values-local.yaml"
 fi
