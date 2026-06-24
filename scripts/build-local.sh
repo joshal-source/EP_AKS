@@ -13,7 +13,7 @@ fi
 
 IMAGE_NAME="${IMAGE_NAME:-edgeprocessor}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
-LOCAL_TAG="${LOCAL_IMAGE:-${IMAGE_NAME}:${IMAGE_TAG}}"
+LOCAL_TAG="${IMAGE_NAME}:${IMAGE_TAG}"
 PUSH=false
 
 usage() {
@@ -29,7 +29,6 @@ Environment (.env):
   IMAGE_NAME=edgeprocessor
   IMAGE_TAG=latest
   ACR_NAME=epacr          # required for --push
-  LOCAL_IMAGE=edgeprocessor:local   # optional local-only tag
 
 Examples:
   $0
