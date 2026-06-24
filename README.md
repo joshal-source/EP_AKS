@@ -6,7 +6,7 @@
 
 1. **Splunk OnPrem Data Management control plane** with Edge Processor enabled
 2. **Splunk token authentication** enabled on the control plane
-3. **Edge Processor group** already created in Splunk UI
+3. **Edge Processor group** — create one when copying the install script for a new deployment, or use an existing group to add instances
 4. **Azure subscription** with permissions to create AKS, ACR, and Load Balancers
 5. Local tools:
   - [Docker](https://docs.docker.com/engine/install/) (build images locally)
@@ -102,7 +102,15 @@ Edit `.env` if needed:
 
 ### 2. Splunk install script
 
-In Splunk UI → **Manage instances** → **Install** → download and save as `install-script.txt` in the repo root.
+Save the install script as `install-script.txt` in the repo root.
+
+**For a new Edge Processor group:**
+
+Splunk UI → **Data Management** → **Add an Edge Processor** → **Configure and Save** → **Copy install script**
+
+**To add instances to an existing Edge Processor group:**
+
+Splunk UI → **Data Management** → **Manage instances** → **Copy install script**
 
 This file contains the **provisioning JWT** (`ep-instance` audience) and `GROUP_ID` — not your HEC token.
 
@@ -158,7 +166,7 @@ So install scripts and package metadata use `https://` instead of `http://`:
 proxyHostPort = https://<DMX_HOST>:8089
 ```
 
-Restart Splunk, then **re-download the install script** from the UI and confirm URLs use `https://`.
+Restart Splunk, then **re-copy the install script** from Splunk UI and confirm URLs use `https://`.
 
 > **Note:** Even with `proxyHostPort`, OpAMP may still return `http://` package URLs. This repo’s container sets `MGMT_PROXY_ENABLED=true` by default to rewrite those locally. Do **not** set `mgmtUri` in `server.conf` — that is not the correct setting for this issue.
 
@@ -166,7 +174,7 @@ Restart Splunk, then **re-download the install script** from the UI and confirm 
 
 | Token | Purpose | Where to get it |
 | ----- | ------- | --------------- |
-| **Provisioning token** (`ep-instance`) | Pod registration, OpAMP, package download | Install script from **Manage instances**, or Tokens UI with audience `ep-instance` |
+| **Provisioning token** (`ep-instance`) | Pod registration, OpAMP, package download | Install script from Splunk UI (see [Splunk install script](#2-splunk-install-script)), or Tokens UI with audience `ep-instance` |
 | **HEC token** | Sending events **to** the Edge Processor | Splunk UI → Edge Processor → your HEC source / receiver configuration |
 
 The provisioning token is a long **JWT** (`eyJ...`) in the install script (`echo "eyJ..." > splunk-edge/var/token`). It is **not** the same as a generic Splunk REST API token or the HEC token used to send events.
