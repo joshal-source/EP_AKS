@@ -142,34 +142,13 @@ Optional Helm sizing (`replicaCount`, CPU/memory): copy `helm/edge-processor/val
 ./scripts/show-ep-endpoints.sh   # prints curl example with LB IP
 ```
 
-### Manual steps (equivalent to deploy.sh)
-
-```bash
-./scripts/build-local.sh --push
-./scripts/create-acr-secret.sh
-./scripts/setup-from-install-script.sh install-script.txt --apply
-./scripts/show-ep-endpoints.sh
-```
-
 ---
 
 ## Splunk control plane setup (do this first)
 
 These steps run on your **Splunk Data Management control plane** host (the instance where you manage Edge Processors in the UI — not indexers/search heads alone).
 
-### 1. TLS on management port 8089
-
-Splunk must listen with TLS on **8089** (default for `enableSplunkdSSL`).
-
-```bash
-# In $SPLUNK_HOME/etc/system/local/server.conf
-[sslConfig]
-enableSplunkdSSL = true
-```
-
-Restart Splunk after changes.
-
-### 2. Advertise HTTPS URLs (recommended)
+### 1. Advertise HTTPS URLs (recommended)
 
 So install scripts and package metadata use `https://` instead of `http://`:
 
@@ -183,26 +162,7 @@ Restart Splunk, then **re-download the install script** from the UI and confirm 
 
 > **Note:** Even with `proxyHostPort`, OpAMP may still return `http://` package URLs. This repo’s container sets `MGMT_PROXY_ENABLED=true` by default to rewrite those locally. Do **not** set `mgmtUri` in `server.conf` — that is not the correct setting for this issue.
 
-### 3. Enable S2S receiving on the indexer (required for data in Splunk)
-
-The Edge Processor forwards processed data to your Splunk indexer over **S2S port 9997**. Without this, HEC returns `Success` but events never appear in Search.
-
-On the Splunk instance that receives indexer traffic (often the same control-plane host in small deployments):
-
-```bash
-$SPLUNK_HOME/bin/splunk enable listen 9997 -auth admin:changeme
-$SPLUNK_HOME/bin/splunk restart
-```
-
-**Network:** open **TCP 9997** on the Splunk host security group/firewall to your AKS cluster outbound IPs (or the NAT/LB egress used by AKS nodes).
-
-Verify from your laptop or a debug pod:
-
-```bash
-nc -zv <DMX_HOST> 9997
-```
-
-### 4. Two different tokens (do not mix them up)
+### 2. Two different tokens (do not mix them up)
 
 | Token | Purpose | Where to get it |
 | ----- | ------- | --------------- |
