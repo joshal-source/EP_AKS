@@ -67,9 +67,28 @@ if ! command -v helm >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! kubectl get secret registry-pull-secret -n "${NAMESPACE}" >/dev/null 2>&1; then
-  echo "ERROR: secret registry-pull-secret not found in namespace ${NAMESPACE}." >&2
-  echo "Create it first: ./scripts/create-ghcr-secret.sh <github-user> <ghp-token>" >&2
+if [[ -f "${ROOT_DIR}/.env" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "${ROOT_DIR}/.env"
+  set +a
+fi
+
+PULL_SECRET_NAME="acr-pull-secret"
+if [[ -f "${CHART_DIR}/values-local.yaml" ]]; then
+  pull_from_local="$(grep -E '^\s*- name:' "${CHART_DIR}/values-local.yaml" | head -1 | sed -E 's/.*name:[[:space:]]*//' || true)"
+  if [[ -n "${pull_from_local}" ]]; then
+    PULL_SECRET_NAME="${pull_from_local}"
+  fi
+elif grep -qE '^\s*- name: acr-pull-secret' "${CHART_DIR}/values.yaml" 2>/dev/null; then
+  PULL_SECRET_NAME="acr-pull-secret"
+fi
+
+if [[ -n "${ACR_NAME:-}" ]]; then
+  ACR_NAME="${ACR_NAME}" NAMESPACE="${NAMESPACE}" "${SCRIPT_DIR}/create-acr-secret.sh" "${ACR_NAME}" "${NAMESPACE}" "${PULL_SECRET_NAME}"
+elif ! kubectl get secret "${PULL_SECRET_NAME}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+  echo "ERROR: ${PULL_SECRET_NAME} not found in namespace ${NAMESPACE}." >&2
+  echo "Set ACR_NAME in .env and run: ./scripts/create-acr-secret.sh" >&2
   exit 1
 fi
 

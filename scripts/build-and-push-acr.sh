@@ -1,26 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 2 ]]; then
-  echo "Usage: $0 <acr-name> <image-tag>"
-  echo "Example: $0 mycompanyacr v1"
-  exit 1
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ $# -ge 2 ]]; then
+  ACR_NAME="$1"
+  IMAGE_TAG="$2"
+  ACR_NAME="${ACR_NAME}" IMAGE_TAG="${IMAGE_TAG}" "${SCRIPT_DIR}/build-local.sh" --push
+  exit 0
 fi
 
-ACR_NAME="$1"
-IMAGE_TAG="$2"
-IMAGE="${ACR_NAME}.azurecr.io/edgeprocessor:${IMAGE_TAG}"
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
-echo "Logging into Azure Container Registry: ${ACR_NAME}"
-az acr login --name "${ACR_NAME}"
-
-echo "Building image: ${IMAGE}"
-docker build -t "${IMAGE}" "${ROOT_DIR}/docker"
-
-echo "Pushing image: ${IMAGE}"
-docker push "${IMAGE}"
-
-echo "Done. Update k8s/deployment.yaml image to: ${IMAGE}"
+echo "Usage: $0 <acr-name> <image-tag>"
+echo ""
+echo "Build with local Docker and push to Azure Container Registry."
+echo "Prefer .env + ./scripts/build-local.sh --push when ACR_NAME is already set."
+echo ""
+echo "Example: $0 mycompanyacr latest"
+exit 1

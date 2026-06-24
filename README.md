@@ -9,28 +9,36 @@
 3. **Edge Processor group** already created in Splunk UI
 4. **Azure subscription** with permissions to create AKS, ACR, and Load Balancers
 5. Local tools:
+  - [Docker](https://docs.docker.com/engine/install/) (build images locally)
   - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) (`az`)
   - [kubectl](https://kubernetes.io/docs/tasks/tools/)
   - [Helm 3](https://helm.sh/docs/intro/install/)
-  - GitHub PAT with `read:packages` (for private GHCR image)
   - `jq` and `curl`
+
+**ACR name:** `ACR_NAME` in `.env` must be globally unique (lowercase alphanumeric, 5–50 chars). Example: `epacr` → `epacr.azurecr.io`.
 
 ---
 
 ## Architecture (default deploy)
 
-After the quick start flow, Azure and Kubernetes look like this:
+Images are built on your machine with Docker, pushed to Azure Container Registry (ACR), and pulled by AKS using an **`acr-pull-secret`**.
 
 ```mermaid
 flowchart LR
+  subgraph local["Your machine"]
+    docker["Docker engine<br/>build-local.sh"]
+  end
+
   subgraph sources["Data sources"]
     HEC["HEC clients"]
     UF["Forwarders / S2S"]
   end
 
   subgraph azure["Azure — resource group ep-rg"]
+    acr["ACR epacr.azurecr.io"]
     subgraph aks["AKS cluster ep-aks — worker nodes from .env"]
       subgraph ns["namespace splunk-edge"]
+        pullsec["Secret acr-pull-secret"]
         dep["Deployment ep-deployment<br/>replicaCount pods"]
         svc["Service ep-service"]
         cm["ConfigMap ep-instance-guids<br/>GROUP_ID"]
@@ -40,16 +48,17 @@ flowchart LR
     lb["Azure Standard Load Balancer<br/>public EXTERNAL-IP"]
   end
 
-  ghcr["GHCR<br/>edgeprocessor:latest"]
   splunk["Splunk control plane<br/>DMX_HOST"]
 
+  docker -->|"docker push"| acr
+  pullsec --> dep
+  acr -.->|"pull via secret"| dep
   HEC -->|"TCP 8088"| lb
   UF -->|"TCP 9997"| lb
   lb --> svc
   svc --> dep
   cm --> dep
   sec --> dep
-  ghcr -.->|"image pull"| dep
   dep -->|"TCP 8089 OpAMP + package download"| splunk
   dep -->|"TCP 9997 processed data S2S"| splunk
 ```
@@ -60,7 +69,7 @@ flowchart LR
 | **Worker nodes** | 2 × `Standard_D4s_v5` (from `.env`) | Host EP pods (Ubuntu 22.04) |
 | **EP pods** | 2 (`replicaCount` in values) | One Splunk instance per pod, same Edge Processor group |
 | **LoadBalancer** | `ep-service` public IP | Single entry for HEC `:8088` and S2S `:9997` |
-| **Image** | `ghcr.io/.../edgeprocessor:latest` | Built by GitHub Actions; pulled via `registry-pull-secret` |
+| **Image** | `<ACR_NAME>.azurecr.io/edgeprocessor:latest` | Built locally; pulled via `acr-pull-secret` |
 | **Splunk outbound** | AKS SNAT IP → `:8089`, `:9997` | Registration, packages, and exported data to your indexer |
 
 Each pod runs `splunk-edge`, `splunksup`, and `edge_linux_amd64`. All replicas share one **GROUP_ID** from the install script and appear as separate instances under the same Edge Processor group in Splunk UI.
@@ -87,19 +96,23 @@ Edit `.env` if needed:
 | `AKS_CLUSTER_NAME` | `ep-aks` | AKS cluster name |
 | `AKS_NODE_COUNT` | `2` | Worker nodes |
 | `AKS_NODE_VM_SIZE` | `Standard_D4s_v5` | VM SKU (4 vCPU, 16 GiB) |
+| `ACR_NAME` | `epacr` | Azure Container Registry (globally unique name) |
+| `IMAGE_NAME` | `edgeprocessor` | Image name in ACR |
+| `IMAGE_TAG` | `latest` | Image tag |
 
-### 2. (Optional) EP pod count and sizing
-
-Fixed pod count — no autoscaling. Set `replicaCount` before the first deploy:
+### 2. Helm overrides (pod count and image)
 
 ```bash
 cp helm/edge-processor/values-local.yaml.example helm/edge-processor/values-local.yaml
 ```
 
-Edit `helm/edge-processor/values-local.yaml`:
+Edit `helm/edge-processor/values-local.yaml` — set `replicaCount` and match `image.repository` to your ACR:
 
 ```yaml
-replicaCount: 2   # static EP pod count
+replicaCount: 2
+image:
+  repository: epacr.azurecr.io/edgeprocessor   # must match ACR_NAME in .env
+  tag: latest
 ```
 
 Ensure nodes can fit all pods (`replicaCount` × `resources` per pod). Increase `AKS_NODE_COUNT` or `AKS_NODE_VM_SIZE` in `.env` if needed.
@@ -110,20 +123,23 @@ In Splunk UI → **Manage instances** → **Install** → download and save as `
 
 This file contains the **provisioning JWT** (`ep-instance` audience) and `GROUP_ID` — not your HEC token.
 
-### 4. Create AKS and deploy
+### 4. Create AKS, build image, and deploy
 
 ```bash
 az login
 
-./scripts/setup-aks.sh
-./scripts/create-ghcr-secret.sh YOUR_GITHUB_USER ghp_<pat>
+./scripts/setup-aks.sh              # creates AKS + ACR (ACR_NAME from .env)
+./scripts/build-local.sh --push     # docker build on your machine, push to ACR
+./scripts/create-acr-secret.sh      # ACR admin creds → acr-pull-secret in Kubernetes
 ./scripts/setup-from-install-script.sh install-script.txt --apply
 ./scripts/show-ep-endpoints.sh
 ```
 
-`create-ghcr-secret.sh` needs a GitHub PAT with **`read:packages`** scope.
+`build-local.sh` uses your local Docker engine. `--push` tags and uploads to `${ACR_NAME}.azurecr.io/${IMAGE_NAME}:${IMAGE_TAG}`.
 
-`setup-from-install-script.sh --apply` parses the install script, writes `values-install.yaml`, and runs Helm.
+`create-acr-secret.sh` is required — AKS pulls the image using this Kubernetes secret (not managed identity).
+
+`setup-from-install-script.sh --apply` also refreshes `acr-pull-secret` automatically if `ACR_NAME` is in `.env`.
 
 `show-ep-endpoints.sh` waits for the LoadBalancer IP and prints HEC/S2S URLs plus a sample `curl`.
 
@@ -139,13 +155,26 @@ az login
 
 ### Redeploy (cluster already exists)
 
+After changing `docker/` or Splunk config:
+
 ```bash
 az aks get-credentials --resource-group ep-rg --name ep-aks --overwrite-existing
+./scripts/build-local.sh --push     # if the container image changed
 ./scripts/setup-from-install-script.sh install-script.txt --apply
 ./scripts/show-ep-endpoints.sh
 ```
 
 Re-download `install-script.txt` from Splunk if you regenerated the provisioning token or changed the EP group.
+
+### Local Docker only (no Kubernetes)
+
+Run a single EP container on your laptop for testing:
+
+```bash
+./scripts/run-local-docker.sh install-script.txt
+```
+
+HEC and S2S listen on `localhost:8088` and `localhost:9997`. Splunk still needs network access to your machine for outbound registration and S2S export.
 
 ---
 
@@ -217,8 +246,9 @@ Set in `.env` (from `env.template`), then create the cluster:
 
 | Variable | Default | Purpose |
 | -------- | ------- | ------- |
-| `AKS_NODE_COUNT` | `3` | Worker nodes |
+| `AKS_NODE_COUNT` | `2` | Worker nodes |
 | `AKS_NODE_VM_SIZE` | `Standard_D4s_v5` | VM SKU (4 vCPU, 16 GiB) |
+| `ACR_NAME` | `epacr` | Creates ACR; image pulls use `acr-pull-secret` |
 | `AKS_K8S_VERSION` | (latest) | Optional Kubernetes version |
 
 ```bash
@@ -240,8 +270,8 @@ cp helm/edge-processor/values-local.yaml.example helm/edge-processor/values-loca
 | values key | Controls |
 | ---------- | -------- |
 | `replicaCount` | Fixed EP pod count (default 2) |
+| `image.repository` / `tag` | ACR image (must match `build-local.sh --push`) |
 | `resources` | CPU/memory per pod |
-| `image.repository` / `tag` | Container image |
 | `strategy.rollingUpdate.maxSurge` | `0` = no extra pod during rollouts (avoids 3rd Splunk instance) |
 | `service.annotations` | e.g. internal Azure Load Balancer |
 | `terminationGracePeriodSeconds` | Time for Splunk offboard on pod shutdown |

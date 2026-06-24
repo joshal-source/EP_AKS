@@ -5,6 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 HELM_VALUES_INSTALL="${ROOT_DIR}/helm/edge-processor/values-install.yaml"
 
+if [[ -f "${ROOT_DIR}/.env" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "${ROOT_DIR}/.env"
+  set +a
+fi
+
 # shellcheck source=lib/parse-install-script.sh
 source "${SCRIPT_DIR}/lib/parse-install-script.sh"
 # shellcheck source=lib/write-helm-values.sh
@@ -30,7 +37,8 @@ Examples:
 
 Prerequisites:
   - kubectl + helm configured for your AKS cluster
-  - GHCR pull secret: ./scripts/create-ghcr-secret.sh
+  - ACR_NAME in .env, image pushed (./scripts/build-local.sh --push)
+  - acr-pull-secret (./scripts/create-acr-secret.sh — auto-refreshed on deploy)
   - Optional sizing: copy helm/edge-processor/values-local.yaml.example to values-local.yaml
 EOF
 }
@@ -96,6 +104,10 @@ fi
 
 parse_install_script "${INSTALL_SCRIPT}"
 validate_parsed_install_script
+
+if [[ -z "${IMAGE_OVERRIDE:-}" && -n "${ACR_NAME:-}" ]]; then
+  IMAGE_OVERRIDE="${ACR_NAME}.azurecr.io/${IMAGE_NAME:-edgeprocessor}:${IMAGE_TAG:-latest}"
+fi
 
 echo ""
 print_parsed_install_script

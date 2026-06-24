@@ -3,9 +3,11 @@
 
 replicaCount: 2
 
-# image:
-#   repository: ghcr.io/yourusername/edgeprocessor
-#   tag: latest
+# Match ACR_NAME / IMAGE_NAME / IMAGE_TAG from .env after build-local.sh --push
+image:
+  repository: epacr.azurecr.io/edgeprocessor
+  tag: latest
+  pullPolicy: IfNotPresent
 
 resources:
   requests:

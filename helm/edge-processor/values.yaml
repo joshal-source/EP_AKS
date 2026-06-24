@@ -4,12 +4,14 @@
 namespace: splunk-edge
 
 image:
-  repository: ghcr.io/joshal-source/edgeprocessor
+  # Set in values-local.yaml after build-local.sh --push, e.g. epacr.azurecr.io/edgeprocessor
+  repository: edgeprocessor
   tag: latest
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
 
+# ACR admin credentials → Kubernetes pull secret (required for AKS to pull from ACR)
 imagePullSecrets:
-  - name: registry-pull-secret
+  - name: acr-pull-secret
 
 # Fixed EP pod count (set replicaCount in values-local.yaml to override)
 replicaCount: 2
