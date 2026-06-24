@@ -21,54 +21,60 @@
 
 ## Architecture (default deploy)
 
-Images are built on your machine with Docker, pushed to Azure Container Registry (ACR), and pulled by AKS using an **`acr-pull-secret`**.
+Images are built on your machine with Docker, pushed to Azure Container Registry (ACR), and pulled by AKS using an **`acr-pull-secret`**. On-prem clients reach HEC/S2S through a **named NSG** and Azure Load Balancer **allow-list** (from `config/nsg-allowed-sources.conf`).
 
 ```mermaid
 flowchart LR
-  subgraph local["Your machine"]
-    docker["Docker engine<br/>build-local.sh"]
-  end
-
-  subgraph sources["Data sources"]
+  subgraph onprem["On-prem (allowed IPs/CIDRs)"]
     HEC["HEC clients"]
     UF["Forwarders / S2S"]
   end
 
-  subgraph azure["Azure — resource group ep-rg"]
-    acr["ACR epacr.azurecr.io"]
-    subgraph aks["AKS cluster ep-aks — worker nodes from .env"]
-      subgraph ns["namespace splunk-edge"]
-        pullsec["Secret acr-pull-secret"]
-        dep["Deployment ep-deployment<br/>replicaCount pods"]
-        svc["Service ep-service"]
-        cm["ConfigMap ep-instance-guids<br/>GROUP_ID"]
-        sec["Secret edge-processor-secrets<br/>provisioning JWT"]
-      end
-    end
-    lb["Azure Standard Load Balancer<br/>public EXTERNAL-IP"]
+  subgraph local["Your machine"]
+    docker["Docker engine<br/>build-local.sh"]
   end
 
-  splunk["Splunk control plane<br/>DMX_HOST"]
+  subgraph azure["Azure — resource group ep-rg"]
+    acr["ACR epacr.azurecr.io"]
+    subgraph vnet["VNet ep-vnet — subnet ep-aks-subnet"]
+      nsg["NSG ep-edge-nsg<br/>TCP 8088 / 9997 allow-list"]
+      subgraph aks["AKS cluster ep-aks"]
+        subgraph ns["namespace splunk-edge"]
+          pullsec["Secret acr-pull-secret"]
+          dep["Deployment ep-deployment<br/>replicaCount pods"]
+          svc["Service ep-service"]
+          cm["ConfigMap ep-instance-guids<br/>GROUP_ID"]
+          sec["Secret edge-processor-secrets<br/>provisioning JWT"]
+        end
+      end
+    end
+    lb["Azure Standard Load Balancer<br/>public EXTERNAL-IP<br/>azure-allowed-ip-ranges"]
+  end
+
+  splunk["Splunk on-prem<br/>DMX_HOST"]
 
   docker -->|"docker push"| acr
   pullsec --> dep
   acr -.->|"pull via secret"| dep
-  HEC -->|"TCP 8088"| lb
-  UF -->|"TCP 9997"| lb
+  HEC -->|"TCP 8088"| nsg
+  UF -->|"TCP 9997"| nsg
+  nsg --> lb
   lb --> svc
   svc --> dep
   cm --> dep
   sec --> dep
-  dep -->|"TCP 8089 OpAMP + package download"| splunk
+  dep -->|"TCP 8089 OpAMP + packages"| splunk
   dep -->|"TCP 9997 processed data S2S"| splunk
 ```
 
 | Layer | Default | Purpose |
 | ----- | ------- | ------- |
+| **VNet / subnet** | `ep-vnet` / `ep-aks-subnet` | Custom network for AKS nodes |
+| **NSG** | `ep-edge-nsg` | Inbound allow-list for on-prem **8088** / **9997** |
 | **AKS cluster** | `ep-aks` in `ep-rg` | Runs Kubernetes |
 | **Worker nodes** | 2 × `Standard_D4s_v5` (from `.env`) | Host EP pods (Ubuntu 22.04) |
 | **EP pods** | 2 (`replicaCount` in values) | One Splunk instance per pod, same Edge Processor group |
-| **LoadBalancer** | `ep-service` public IP | Single entry for HEC `:8088` and S2S `:9997` |
+| **LoadBalancer** | `ep-service` public IP | Single entry for HEC `:8088` and S2S `:9997`; synced allow-list from NSG config |
 | **Image** | `<ACR_NAME>.azurecr.io/edgeprocessor:latest` | Built locally; pulled via `acr-pull-secret` |
 | **Splunk outbound** | AKS SNAT IP → `:8089`, `:9997` | Registration, packages, and exported data to your indexer |
 
