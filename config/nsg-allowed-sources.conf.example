@@ -1,0 +1,12 @@
+# Allowed on-prem (or other) source IPs/CIDRs for inbound HEC (8088) and S2S (9997).
+# Copy to nsg-allowed-sources.conf and edit (or set NSG_ALLOWED_SOURCES_FILE in .env).
+#
+# One address or prefix per line. Lines starting with # are ignored.
+#
+# Examples:
+# 203.0.113.50              # single corporate egress IP
+# 10.20.0.0/16              # on-prem network via VPN
+# 192.168.1.0/24
+
+203.0.113.50
+10.20.0.0/16

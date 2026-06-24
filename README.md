@@ -117,11 +117,14 @@ This file contains the **provisioning JWT** (`ep-instance` audience) and `GROUP_
 ### 3. First-time setup (once per environment)
 
 ```bash
+cp config/nsg-allowed-sources.conf.example config/nsg-allowed-sources.conf
+# Edit with on-prem egress IP(s) or VPN CIDRs allowed to reach HEC (8088) and S2S (9997)
+
 az login
-./scripts/setup-aks.sh    # creates AKS + ACR — safe to re-run; skips if already exists
+./scripts/setup-aks.sh    # VNet + NSG + AKS + ACR — safe to re-run; skips if already exists
 ```
 
-Pick a **globally unique** `ACR_NAME` in `.env` before this step (e.g. `mycompanyepacr`).
+Set `NSG_NAME` and network CIDRs in `.env` if you want different names (see `env.template`). Pick a **globally unique** `ACR_NAME` before this step (e.g. `mycompanyepacr`).
 
 ### 4. Deploy (repeat anytime)
 
@@ -134,7 +137,8 @@ This single command:
 1. Syncs `kubectl` credentials
 2. Builds the image with local Docker (`linux/amd64`) and pushes to ACR
 3. Refreshes `acr-pull-secret`
-4. Runs Helm upgrade and prints HEC/S2S endpoints
+4. Refreshes NSG / LoadBalancer allow-list from `config/nsg-allowed-sources.conf` (when present)
+5. Runs Helm upgrade and prints HEC/S2S endpoints
 
 **Safe to re-run** after deleting the local Docker image, deleting the image from ACR, or changing `docker/` or Splunk config.
 
@@ -262,6 +266,30 @@ kubectl get nodes
 3. **Increase `replicaCount`** in `values-local.yaml`
 4. **Redeploy:** `./scripts/deploy.sh install-script.txt --skip-build`
 5. Confirm new instances are **Healthy** in Splunk UI
+
+---
+
+### On-prem access — NSG and LoadBalancer allow-list
+
+`setup-aks.sh` creates a VNet, subnet, and **NSG** (`NSG_NAME` in `.env`). Allowed on-prem sources are listed in **`config/nsg-allowed-sources.conf`** (one IP or CIDR per line).
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `NSG_NAME` | `ep-edge-nsg` | Azure NSG resource name |
+| `VNET_NAME` | `ep-vnet` | VNet for AKS nodes |
+| `AKS_SUBNET_NAME` | `ep-aks-subnet` | Subnet attached to the NSG |
+| `NSG_ALLOWED_SOURCES_FILE` | `config/nsg-allowed-sources.conf` | On-prem IPs/CIDRs for inbound **8088** and **9997** |
+
+On each deploy, `apply-nsg-rules.sh`:
+
+1. Updates NSG inbound rules `ep-allow-hec-onprem` (TCP 8088) and `ep-allow-s2s-onprem` (TCP 9997)
+2. Writes `helm/edge-processor/values-nsg.yaml` with `azure-allowed-ip-ranges` for the Azure Load Balancer
+
+**Update on-prem egress IPs:** edit `config/nsg-allowed-sources.conf`, then run `./scripts/deploy.sh install-script.txt --skip-build` (or `./scripts/apply-nsg-rules.sh` alone).
+
+**Also allow on-prem firewall outbound** to the LoadBalancer public IP on **8088** and **9997**, and Splunk inbound from AKS **outbound SNAT IP** on **8089** / **9997**.
+
+> **Existing clusters** created before this NSG flow use AKS-managed VNets. The named NSG applies when AKS is created through `./scripts/setup-aks.sh` with the custom subnet. Migrating an old cluster requires a new cluster on the custom VNet or manual NSG work.
 
 ---
 

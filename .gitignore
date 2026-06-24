@@ -8,3 +8,5 @@ k8s/secret.yaml
 install-script.txt
 helm/edge-processor/values-install.yaml
 helm/edge-processor/values-local.yaml
+helm/edge-processor/values-nsg.yaml
+config/nsg-allowed-sources.conf

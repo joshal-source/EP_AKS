@@ -26,6 +26,7 @@ Default value files (first found wins for overlapping keys, later files override
   helm/edge-processor/values.yaml
   helm/edge-processor/values-local.yaml   (optional, your overrides)
   helm/edge-processor/values-install.yaml (optional, from install script)
+  helm/edge-processor/values-nsg.yaml     (optional, from apply-nsg-rules.sh)
 
 Examples:
   $0
@@ -100,6 +101,10 @@ fi
 
 if [[ -f "${CHART_DIR}/values-install.yaml" ]]; then
   VALUES_ARGS+=(-f "${CHART_DIR}/values-install.yaml")
+fi
+
+if [[ -f "${CHART_DIR}/values-nsg.yaml" ]]; then
+  VALUES_ARGS+=(-f "${CHART_DIR}/values-nsg.yaml")
 fi
 
 if ((${#EXTRA_VALUES[@]} > 0)); then

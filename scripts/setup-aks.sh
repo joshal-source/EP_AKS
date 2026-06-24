@@ -28,6 +28,7 @@ With no arguments, reads from .env (copy env.template → .env):
   AKS_NODE_COUNT=2
   AKS_NODE_VM_SIZE=Standard_D4s_v5
   ACR_NAME=epacr          # creates ACR; pulls use acr-pull-secret
+  NSG_NAME=ep-edge-nsg    # NSG for on-prem allow-list (see config/nsg-allowed-sources.conf)
 
 Examples:
   cp env.template .env && $0
@@ -73,6 +74,17 @@ else
   echo "  ACR ${ACR_NAME} already exists in ${RESOURCE_GROUP}"
 fi
 
+echo "Ensuring VNet, NSG, and subnet (on-prem allow-list)"
+"${SCRIPT_DIR}/setup-network.sh"
+
+AKS_SUBNET_NAME="${AKS_SUBNET_NAME:-ep-aks-subnet}"
+VNET_NAME="${VNET_NAME:-ep-vnet}"
+SUBNET_ID="$(az network vnet subnet show \
+  --resource-group "${RESOURCE_GROUP}" \
+  --vnet-name "${VNET_NAME}" \
+  --name "${AKS_SUBNET_NAME}" \
+  --query id -o tsv)"
+
 if az aks show --resource-group "${RESOURCE_GROUP}" --name "${AKS_NAME}" >/dev/null 2>&1; then
   echo "AKS cluster ${AKS_NAME} already exists — skipping create"
 else
@@ -83,6 +95,8 @@ else
     --node-vm-size "${NODE_VM_SIZE}"
     --enable-managed-identity
     --generate-ssh-keys
+    --network-plugin azure
+    --vnet-subnet-id "${SUBNET_ID}"
   )
 
   if [[ -n "${AKS_K8S_VERSION:-}" ]]; then
@@ -91,6 +105,7 @@ else
 
   echo "Creating AKS cluster ${AKS_NAME}"
   echo "  nodes: ${NODE_COUNT} x ${NODE_VM_SIZE}"
+  echo "  subnet: ${SUBNET_ID}"
   az aks create "${CREATE_ARGS[@]}" -o none
   echo "  Created AKS cluster ${AKS_NAME}"
 fi
