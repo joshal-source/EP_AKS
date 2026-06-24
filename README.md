@@ -100,48 +100,37 @@ Edit `.env` if needed:
 | `IMAGE_NAME` | `edgeprocessor` | Image name in ACR |
 | `IMAGE_TAG` | `latest` | Image tag |
 
-### 2. Helm overrides (pod count and image)
-
-```bash
-cp helm/edge-processor/values-local.yaml.example helm/edge-processor/values-local.yaml
-```
-
-Edit `helm/edge-processor/values-local.yaml` — set `replicaCount` and match `image.repository` to your ACR:
-
-```yaml
-replicaCount: 2
-image:
-  repository: epacr.azurecr.io/edgeprocessor   # must match ACR_NAME in .env
-  tag: latest
-```
-
-Ensure nodes can fit all pods (`replicaCount` × `resources` per pod). Increase `AKS_NODE_COUNT` or `AKS_NODE_VM_SIZE` in `.env` if needed.
-
-### 3. Splunk install script
+### 2. Splunk install script
 
 In Splunk UI → **Manage instances** → **Install** → download and save as `install-script.txt` in the repo root.
 
 This file contains the **provisioning JWT** (`ep-instance` audience) and `GROUP_ID` — not your HEC token.
 
-### 4. Create AKS, build image, and deploy
+### 3. First-time setup (once per environment)
 
 ```bash
 az login
-
-./scripts/setup-aks.sh              # creates AKS + ACR (ACR_NAME from .env)
-./scripts/build-local.sh --push     # docker build on your machine, push to ACR
-./scripts/create-acr-secret.sh      # ACR admin creds → acr-pull-secret in Kubernetes
-./scripts/setup-from-install-script.sh install-script.txt --apply
-./scripts/show-ep-endpoints.sh
+./scripts/setup-aks.sh    # creates AKS + ACR — safe to re-run; skips if already exists
 ```
 
-`build-local.sh` uses your local Docker engine. `--push` tags and uploads to `${ACR_NAME}.azurecr.io/${IMAGE_NAME}:${IMAGE_TAG}`.
+Pick a **globally unique** `ACR_NAME` in `.env` before this step (e.g. `mycompanyepacr`).
 
-`create-acr-secret.sh` is required — AKS pulls the image using this Kubernetes secret (not managed identity).
+### 4. Deploy (repeat anytime)
 
-`setup-from-install-script.sh --apply` also refreshes `acr-pull-secret` automatically if `ACR_NAME` is in `.env`.
+```bash
+./scripts/deploy.sh install-script.txt
+```
 
-`show-ep-endpoints.sh` waits for the LoadBalancer IP and prints HEC/S2S URLs plus a sample `curl`.
+This single command:
+
+1. Syncs `kubectl` credentials
+2. Builds the image with local Docker (`linux/amd64`) and pushes to ACR
+3. Refreshes `acr-pull-secret`
+4. Runs Helm upgrade and prints HEC/S2S endpoints
+
+**Safe to re-run** after deleting the local Docker image, deleting the image from ACR, or changing `docker/` or Splunk config.
+
+Optional Helm sizing (`replicaCount`, CPU/memory): copy `helm/edge-processor/values-local.yaml.example` to `values-local.yaml` — `deploy.sh` auto-creates it from `.env` if missing.
 
 ### 5. Verify
 
@@ -153,18 +142,14 @@ az login
 ./scripts/show-ep-endpoints.sh   # prints curl example with LB IP
 ```
 
-### Redeploy (cluster already exists)
-
-After changing `docker/` or Splunk config:
+### Manual steps (equivalent to deploy.sh)
 
 ```bash
-az aks get-credentials --resource-group ep-rg --name ep-aks --overwrite-existing
-./scripts/build-local.sh --push     # if the container image changed
+./scripts/build-local.sh --push
+./scripts/create-acr-secret.sh
 ./scripts/setup-from-install-script.sh install-script.txt --apply
 ./scripts/show-ep-endpoints.sh
 ```
-
-Re-download `install-script.txt` from Splunk if you regenerated the provisioning token or changed the EP group.
 
 ### Local Docker only (no Kubernetes)
 

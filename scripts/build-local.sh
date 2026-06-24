@@ -70,16 +70,19 @@ if [[ "${PUSH}" == "true" ]]; then
   fi
   REMOTE="${ACR_NAME}.azurecr.io/${IMAGE_NAME}:${IMAGE_TAG}"
   echo "Logging into ACR ${ACR_NAME}"
-  az acr login --name "${ACR_NAME}"
+  if ! az acr login --name "${ACR_NAME}"; then
+    echo "ERROR: az acr login failed. Run az login and verify ACR_NAME in .env." >&2
+    exit 1
+  fi
   docker tag "${LOCAL_TAG}" "${REMOTE}"
   echo "Pushing ${REMOTE}"
   docker push "${REMOTE}"
+  if ! az acr repository show -n "${ACR_NAME}" --image "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then
+    echo "ERROR: push finished but image not found in ACR: ${REMOTE}" >&2
+    exit 1
+  fi
   echo ""
   echo "Image ready for AKS: ${REMOTE}"
-  echo "Ensure helm/edge-processor/values-local.yaml sets:"
-  echo "  image:"
-  echo "    repository: ${ACR_NAME}.azurecr.io/${IMAGE_NAME}"
-  echo "    tag: ${IMAGE_TAG}"
 fi
 
 echo "Done."

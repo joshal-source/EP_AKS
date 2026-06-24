@@ -3,7 +3,7 @@
 
 replicaCount: 2
 
-# Match ACR_NAME / IMAGE_NAME / IMAGE_TAG from .env after build-local.sh --push
+# Match ACR_NAME / IMAGE_NAME / IMAGE_TAG from .env (deploy.sh auto-creates/updates this file)
 image:
   repository: epacr.azurecr.io/edgeprocessor
   tag: latest
