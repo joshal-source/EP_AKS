@@ -36,7 +36,7 @@ terminationGracePeriodSeconds: 120
 # Persistent disk per EP pod (StatefulSet volumeClaimTemplate — Azure managed-csi default on AKS)
 persistence:
   enabled: true
-  size: 10Gi
+  size: 20Gi
   # storageClassName: managed-csi   # omit to use cluster default
   storageClassName: ""
   accessMode: ReadWriteOnce

@@ -77,7 +77,7 @@ flowchart LR
 | **AKS cluster** | `ep-aks` in `ep-rg` | Runs Kubernetes |
 | **Worker nodes** | 2 × `Standard_D4s_v5` (from `.env`) | Host EP pods (Ubuntu 22.04) |
 | **EP pods** | 2 (`replicaCount` in values) | One Splunk instance per pod, same Edge Processor group |
-| **Pod storage** | `10Gi` PVC per pod (`persistence.size`) | Azure managed disk (default `managed-csi`); EP data under `/opt/splunk-edge` |
+| **Pod storage** | `20Gi` PVC per pod (`persistence.size`, ~21.5 GB) | Azure managed disk (default `managed-csi`); EP data under `/opt/splunk-edge` |
 | **LoadBalancer** | `ep-service` public IP | Single entry for HEC `:8088` and S2S `:9997`; synced allow-list from NSG config |
 | **Image** | `<ACR_NAME>.azurecr.io/edgeprocessor:latest` | Built locally; pulled via `acr-pull-secret` |
 | **Splunk inbound (AKS SNAT)** | AKS outbound SNAT IP | Allow from cluster on **8089** (OpAMP/packages), **9997** (S2S export), **443** or **8088** (HEC export — port depends on destination) |
@@ -333,7 +333,7 @@ cp helm/edge-processor/values-local.yaml.example helm/edge-processor/values-loca
 | ---------- | -------- |
 | `replicaCount` | Fixed EP pod count (default 2) — see [Scale EP pods](#scale-ep-pods-after-initial-deploy) |
 | `persistence.enabled` | `true` = one PVC per pod (StatefulSet) |
-| `persistence.size` | Disk size per pod (default `10Gi`) — or set `EP_STORAGE_SIZE` in `.env` |
+| `persistence.size` | Disk size per pod (default `20Gi`, ~21.5 GB) — or set `EP_STORAGE_SIZE` in `.env` |
 | `persistence.storageClassName` | Azure disk class (default: cluster default, usually `managed-csi`) |
 | `image.repository` / `tag` | ACR image (must match `build-local.sh --push`) |
 | `resources` | CPU/memory per pod |
