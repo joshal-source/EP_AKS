@@ -4,12 +4,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-if [[ -f "${ROOT_DIR}/.env" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "${ROOT_DIR}/.env"
-  set +a
-fi
+# shellcheck source=lib/load-env.sh
+source "${SCRIPT_DIR}/lib/load-env.sh"
+load_ep_env "${ROOT_DIR}"
 
 IMAGE_NAME="${IMAGE_NAME:-edgeprocessor}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
@@ -67,8 +64,9 @@ if [[ "${PUSH}" == "true" ]]; then
     echo "ERROR: set ACR_NAME in .env before using --push" >&2
     exit 1
   fi
-  REMOTE="${ACR_NAME}.azurecr.io/${IMAGE_NAME}:${IMAGE_TAG}"
-  echo "Logging into ACR ${ACR_NAME}"
+  REMOTE="$(ep_acr_image)"
+  LOGIN_SERVER="$(ep_acr_login_server)"
+  echo "Logging into ACR ${LOGIN_SERVER} (Azure cloud: $(ep_azure_cloud_name || echo unknown))"
   if ! az acr login --name "${ACR_NAME}"; then
     echo "ERROR: az acr login failed. Run az login and verify ACR_NAME in .env." >&2
     exit 1

@@ -5,12 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 HELM_VALUES_INSTALL="${ROOT_DIR}/helm/edge-processor/values-install.yaml"
 
-if [[ -f "${ROOT_DIR}/.env" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "${ROOT_DIR}/.env"
-  set +a
-fi
+# shellcheck source=lib/load-env.sh
+source "${SCRIPT_DIR}/lib/load-env.sh"
+load_ep_env "${ROOT_DIR}"
 
 # shellcheck source=lib/parse-install-script.sh
 source "${SCRIPT_DIR}/lib/parse-install-script.sh"
@@ -106,7 +103,7 @@ parse_install_script "${INSTALL_SCRIPT}"
 validate_parsed_install_script
 
 if [[ -z "${IMAGE_OVERRIDE:-}" && -n "${ACR_NAME:-}" ]]; then
-  IMAGE_OVERRIDE="${ACR_NAME}.azurecr.io/${IMAGE_NAME:-edgeprocessor}:${IMAGE_TAG:-latest}"
+  IMAGE_OVERRIDE="$(ep_acr_image)"
 fi
 
 echo ""

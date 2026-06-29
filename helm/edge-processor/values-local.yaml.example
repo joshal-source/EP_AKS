@@ -4,6 +4,7 @@
 replicaCount: 2
 
 # Match ACR_NAME / IMAGE_NAME / IMAGE_TAG from .env (deploy.sh auto-creates/updates this file)
+# repository is auto-set to the detected ACR login server (e.g. *.azurecr.io or *.azurecr.us)
 image:
   repository: epacr.azurecr.io/edgeprocessor
   tag: latest

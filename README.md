@@ -15,7 +15,7 @@
   - [Helm 3](https://helm.sh/docs/intro/install/)
   - `jq` and `curl`
 
-**ACR name:** `ACR_NAME` in `.env` must be globally unique (lowercase alphanumeric, 5–50 chars). Example: `epacr` → `epacr.azurecr.io`.
+**ACR name:** `ACR_NAME` in `.env` must be globally unique (lowercase alphanumeric, 5–50 chars). The registry hostname is **auto-detected** from your Azure CLI cloud (e.g. `epacr.azurecr.io` in public Azure, `epacr.azurecr.us` in Azure Government). Override with `ACR_LOGIN_SERVER` in `.env` if needed.
 
 ---
 
@@ -35,7 +35,7 @@ flowchart LR
   end
 
   subgraph azure["Azure — resource group ep-rg"]
-    acr["ACR epacr.azurecr.io"]
+    acr["ACR (auto-detected login server)"]
     subgraph vnet["VNet ep-vnet — subnet ep-aks-subnet"]
       nsg["NSG ep-edge-nsg<br/>TCP 8088 / 9997 allow-list"]
       subgraph aks["AKS cluster ep-aks"]
@@ -79,7 +79,7 @@ flowchart LR
 | **EP pods** | 2 (`replicaCount` in values) | One Splunk instance per pod, same Edge Processor group |
 | **Pod storage** | `20Gi` PVC per pod (`persistence.size`, ~21.5 GB) | Azure managed disk (default `managed-csi`); EP data under `/opt/splunk-edge` |
 | **LoadBalancer** | `ep-service` public IP | Single entry for HEC `:8088` and S2S `:9997`; synced allow-list from NSG config |
-| **Image** | `<ACR_NAME>.azurecr.io/edgeprocessor:latest` | Built locally; pulled via `acr-pull-secret` |
+| **Image** | `<ACR>/edgeprocessor:latest` (login server auto-detected) | Built locally; pulled via `acr-pull-secret` |
 | **Splunk inbound (AKS SNAT)** | AKS outbound SNAT IP | Allow from cluster on **8089** (OpAMP/packages), **9997** (S2S export), **443** or **8088** (HEC export — port depends on destination) |
 
 Each pod runs `splunk-edge`, `splunksup`, and `edge_linux_amd64`. All replicas share one **GROUP_ID** from the install script and appear as separate instances under the same Edge Processor group in Splunk UI.
@@ -133,6 +133,15 @@ cp config/nsg-allowed-sources.conf.example config/nsg-allowed-sources.conf
 az login
 ./scripts/setup-aks.sh    # VNet + NSG + AKS + ACR — safe to re-run; skips if already exists
 ```
+
+For **Azure Government**, select the Gov cloud before `az login`:
+
+```bash
+az cloud set --name AzureUSGovernment
+az login
+```
+
+Set `AZURE_LOCATION` to a Gov region (e.g. `usgovvirginia`) in `.env`. ACR hostnames resolve to **`*.azurecr.us`** automatically.
 
 Set `NSG_NAME` and network CIDRs in `.env` if you want different names (see `env.template`). Pick a **globally unique** `ACR_NAME` before this step (e.g. `mycompanyepacr`).
 

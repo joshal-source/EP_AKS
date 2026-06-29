@@ -59,6 +59,12 @@ if [[ -z "${ACR_NAME:-}" ]]; then
 fi
 
 echo "Ensuring resource group ${RESOURCE_GROUP} in ${LOCATION}"
+if command -v az >/dev/null 2>&1; then
+  cloud_name="$(ep_azure_cloud_name || true)"
+  if [[ -n "${cloud_name}" ]]; then
+    echo "  Azure cloud: ${cloud_name} (ACR host suffix from az cloud show)"
+  fi
+fi
 az group create --name "${RESOURCE_GROUP}" --location "${LOCATION}" -o none
 
 echo "Ensuring ACR ${ACR_NAME} exists"
@@ -69,7 +75,7 @@ if ! az acr show --name "${ACR_NAME}" --resource-group "${RESOURCE_GROUP}" >/dev
     --sku Standard \
     --admin-enabled false \
     -o none
-  echo "  Created ACR ${ACR_NAME}.azurecr.io"
+  echo "  Created ACR $(ep_acr_login_server)"
 else
   echo "  ACR ${ACR_NAME} already exists in ${RESOURCE_GROUP}"
 fi

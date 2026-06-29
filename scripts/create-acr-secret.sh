@@ -4,12 +4,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-if [[ -f "${ROOT_DIR}/.env" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "${ROOT_DIR}/.env"
-  set +a
-fi
+# shellcheck source=lib/load-env.sh
+source "${SCRIPT_DIR}/lib/load-env.sh"
+load_ep_env "${ROOT_DIR}"
 
 ACR_NAME="${1:-${ACR_NAME:-}}"
 NAMESPACE="${2:-splunk-edge}"
@@ -43,7 +40,7 @@ if [[ -z "${ACR_NAME}" ]]; then
   exit 1
 fi
 
-LOGIN_SERVER="${ACR_NAME}.azurecr.io"
+LOGIN_SERVER="$(ep_acr_login_server)"
 
 echo "Enabling ACR admin user on ${ACR_NAME}"
 az acr update -n "${ACR_NAME}" --admin-enabled true -o none
