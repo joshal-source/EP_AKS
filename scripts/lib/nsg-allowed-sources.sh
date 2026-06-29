@@ -10,18 +10,23 @@ nsg_allowed_sources_file() {
   printf '%s' "${file}"
 }
 
-# Populates global array NSG_ALLOWED_SOURCES. Returns 0 if non-empty, 1 if empty/missing.
+# Populates global array NSG_ALLOWED_SOURCES. Returns 0 if non-empty, 1 on validation error.
 nsg_load_allowed_sources() {
   local root_dir="${1:?root directory required}"
-  local file
+  local file default
   file="$(nsg_allowed_sources_file "${root_dir}")"
+  default="${NSG_ALLOWED_SOURCES_DEFAULT:-0.0.0.0/0}"
 
   NSG_ALLOWED_SOURCES=()
 
   if [[ ! -f "${file}" ]]; then
-    echo "ERROR: NSG allow-list file not found: ${file}" >&2
-    echo "Copy config/nsg-allowed-sources.conf.example and edit, or set NSG_ALLOWED_SOURCES_FILE in .env." >&2
-    return 1
+    if ! nsg_is_valid_source "${default}"; then
+      echo "ERROR: invalid NSG_ALLOWED_SOURCES_DEFAULT: ${default}" >&2
+      return 1
+    fi
+    NSG_ALLOWED_SOURCES=("${default}")
+    echo "NSG allow-list file not found (${file}); using default: ${default}" >&2
+    return 0
   fi
 
   local line trimmed
@@ -38,8 +43,12 @@ nsg_load_allowed_sources() {
   done < "${file}"
 
   if ((${#NSG_ALLOWED_SOURCES[@]} == 0)); then
-    echo "ERROR: no allowed sources in ${file}" >&2
-    return 1
+    if ! nsg_is_valid_source "${default}"; then
+      echo "ERROR: invalid NSG_ALLOWED_SOURCES_DEFAULT: ${default}" >&2
+      return 1
+    fi
+    NSG_ALLOWED_SOURCES=("${default}")
+    echo "NSG allow-list file is empty (${file}); using default: ${default}" >&2
   fi
 
   return 0

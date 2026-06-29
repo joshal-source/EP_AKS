@@ -73,7 +73,7 @@ flowchart LR
 | Layer | Default | Purpose |
 | ----- | ------- | ------- |
 | **VNet / subnet** | `ep-vnet` / `ep-aks-subnet` | Custom network for AKS nodes |
-| **NSG** | `ep-edge-nsg` | Inbound allow-list for on-prem **8088** / **9997** |
+| **NSG** | `ep-edge-nsg` | Inbound allow-list for **8088** / **9997** (default `0.0.0.0/0`) |
 | **AKS cluster** | `ep-aks` in `ep-rg` | Runs Kubernetes |
 | **Worker nodes** | 2 × `Standard_D4s_v5` (from `.env`) | Host EP pods (Ubuntu 22.04) |
 | **EP pods** | 2 (`replicaCount` in values) | One Splunk instance per pod, same Edge Processor group |
@@ -127,9 +127,6 @@ This file contains the **provisioning JWT** (`ep-instance` audience) and `GROUP_
 ### 3. First-time setup (once per environment)
 
 ```bash
-cp config/nsg-allowed-sources.conf.example config/nsg-allowed-sources.conf
-# Edit with on-prem egress IP(s) or VPN CIDRs allowed to reach HEC (8088) and S2S (9997)
-
 az login
 ./scripts/setup-aks.sh    # VNet + NSG + AKS + ACR — safe to re-run; skips if already exists
 ```
@@ -156,7 +153,7 @@ This single command:
 1. Syncs `kubectl` credentials
 2. Builds the image with local Docker (`linux/amd64`) and pushes to ACR
 3. Refreshes `acr-pull-secret`
-4. Refreshes NSG / LoadBalancer allow-list from `config/nsg-allowed-sources.conf` (when present)
+4. Refreshes NSG / LoadBalancer allow-list (default **0.0.0.0/0**; override via `config/nsg-allowed-sources.conf`)
 5. Runs Helm upgrade and prints HEC/S2S endpoints
 
 **Safe to re-run** after deleting the local Docker image, deleting the image from ACR, or changing `docker/` or Splunk config.
@@ -293,14 +290,17 @@ kubectl get nodes
 
 ### On-prem access — NSG and LoadBalancer allow-list
 
-`setup-aks.sh` creates a VNet, subnet, and **NSG** (`NSG_NAME` in `.env`). Allowed on-prem sources are listed in **`config/nsg-allowed-sources.conf`** (one IP or CIDR per line).
+`setup-aks.sh` creates a VNet, subnet, and **NSG** (`NSG_NAME` in `.env`). Inbound sources for HEC/S2S default to **`0.0.0.0/0`** (all sources). Override by copying `config/nsg-allowed-sources.conf.example` to `config/nsg-allowed-sources.conf` with your on-prem egress IP(s) or VPN CIDRs (one per line).
 
 | Variable | Default | Purpose |
 | -------- | ------- | ------- |
 | `NSG_NAME` | `ep-edge-nsg` | Azure NSG resource name |
 | `VNET_NAME` | `ep-vnet` | VNet for AKS nodes |
 | `AKS_SUBNET_NAME` | `ep-aks-subnet` | Subnet attached to the NSG |
-| `NSG_ALLOWED_SOURCES_FILE` | `config/nsg-allowed-sources.conf` | On-prem IPs/CIDRs for inbound **8088** and **9997** |
+| `NSG_ALLOWED_SOURCES_FILE` | `config/nsg-allowed-sources.conf` | Optional file to restrict inbound **8088** / **9997** |
+| `NSG_ALLOWED_SOURCES_DEFAULT` | `0.0.0.0/0` | Used when the allow-list file is missing or empty |
+
+> **Production:** replace `0.0.0.0/0` with specific on-prem/VPN CIDRs before exposing HEC/S2S on a public Load Balancer.
 
 On each deploy, `apply-nsg-rules.sh`:
 

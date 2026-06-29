@@ -179,14 +179,8 @@ fi
 echo "Refreshing ACR pull secret"
 "${SCRIPT_DIR}/create-acr-secret.sh"
 
-sources_file="${NSG_ALLOWED_SOURCES_FILE:-config/nsg-allowed-sources.conf}"
-if [[ "${sources_file}" != /* ]]; then
-  sources_file="${ROOT_DIR}/${sources_file}"
-fi
-if [[ -f "${sources_file}" ]]; then
-  echo "Refreshing NSG allow rules and LoadBalancer allow-list"
-  "${SCRIPT_DIR}/apply-nsg-rules.sh"
-fi
+echo "Refreshing NSG allow rules and LoadBalancer allow-list"
+"${SCRIPT_DIR}/apply-nsg-rules.sh"
 
 echo "Deploying Edge Processor via Helm"
 "${SCRIPT_DIR}/setup-from-install-script.sh" "${INSTALL_SCRIPT}" --apply

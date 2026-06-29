@@ -25,6 +25,7 @@ Apply inbound allow rules on ${NSG_NAME:-ep-edge-nsg} for HEC (${NSG_HEC_PORT:-8
 and write helm/edge-processor/values-nsg.yaml for Azure Load Balancer source filtering.
 
 Sources are read from NSG_ALLOWED_SOURCES_FILE (default: config/nsg-allowed-sources.conf).
+If that file is missing or empty, NSG_ALLOWED_SOURCES_DEFAULT is used (default: 0.0.0.0/0).
 
 Safe to re-run when on-prem egress IPs change.
 EOF
