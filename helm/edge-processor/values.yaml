@@ -33,6 +33,21 @@ resources:
 
 terminationGracePeriodSeconds: 120
 
+# Persistent disk per EP pod (StatefulSet volumeClaimTemplate — Azure managed-csi default on AKS)
+persistence:
+  enabled: true
+  size: 10Gi
+  # storageClassName: managed-csi   # omit to use cluster default
+  storageClassName: ""
+  accessMode: ReadWriteOnce
+  mountPath: /opt/splunk-edge
+  volumeName: splunk-edge-data
+  fsGroup: 0
+  podManagementPolicy: Parallel
+
+headlessService:
+  name: ep-headless
+
 splunk:
   # Set via values-install.yaml from setup-from-install-script.sh
   dmxHost: ""

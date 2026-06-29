@@ -6,7 +6,7 @@ Expand the name of the chart.
 {{- end }}
 
 {{/*
-Full name for the Deployment (kept stable for scripts and docs)
+Full name for the StatefulSet (kept stable for scripts and docs)
 */}}
 {{- define "edge-processor.fullname" -}}
 ep-deployment

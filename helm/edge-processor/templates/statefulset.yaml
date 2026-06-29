@@ -1,19 +1,22 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "edge-processor.fullname" . }}
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "edge-processor.labels" . | nindent 4 }}
 spec:
+  serviceName: {{ .Values.headlessService.name }}
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
       {{- include "edge-processor.selectorLabels" . | nindent 6 }}
-  strategy:
+  {{- if .Values.persistence.enabled }}
+  podManagementPolicy: {{ .Values.persistence.podManagementPolicy }}
+  {{- end }}
+  updateStrategy:
     type: {{ .Values.strategy.type }}
     rollingUpdate:
-      maxSurge: {{ .Values.strategy.rollingUpdate.maxSurge }}
       maxUnavailable: {{ .Values.strategy.rollingUpdate.maxUnavailable }}
   template:
     metadata:
@@ -24,6 +27,10 @@ spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.persistence.enabled }}
+      securityContext:
+        fsGroup: {{ .Values.persistence.fsGroup }}
       {{- end }}
       containers:
         - name: ep
@@ -52,6 +59,8 @@ spec:
               value: {{ ternary "true" "false" .Values.splunk.dmxInsecure | quote }}
             - name: MGMT_PROXY_ENABLED
               value: {{ ternary "true" "false" .Values.splunk.mgmtProxyEnabled | quote }}
+            - name: WORKDIR
+              value: {{ .Values.persistence.mountPath | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           ports:
@@ -61,6 +70,11 @@ spec:
             - name: hec
               containerPort: {{ .Values.service.ports.hec }}
               protocol: TCP
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - name: {{ .Values.persistence.volumeName }}
+              mountPath: {{ .Values.persistence.mountPath }}
+          {{- end }}
           livenessProbe:
             exec:
               command:
@@ -81,3 +95,19 @@ spec:
             periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: {{ .Values.persistence.volumeName }}
+        labels:
+          {{- include "edge-processor.labels" . | nindent 10 }}
+      spec:
+        accessModes:
+          - {{ .Values.persistence.accessMode }}
+        {{- if .Values.persistence.storageClassName }}
+        storageClassName: {{ .Values.persistence.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ required "persistence.size is required when persistence.enabled" .Values.persistence.size | quote }}
+  {{- end }}

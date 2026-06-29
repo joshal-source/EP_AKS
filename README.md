@@ -41,7 +41,8 @@ flowchart LR
       subgraph aks["AKS cluster ep-aks"]
         subgraph ns["namespace splunk-edge"]
           pullsec["Secret acr-pull-secret"]
-          dep["Deployment ep-deployment<br/>replicaCount pods"]
+          dep["StatefulSet ep-deployment<br/>replicaCount pods"]
+          pvc["PVC splunk-edge-data<br/>per pod (Azure Disk)"]
           svc["Service ep-service"]
           cm["ConfigMap ep-instance-guids<br/>GROUP_ID"]
           sec["Secret edge-processor-secrets<br/>provisioning JWT"]
@@ -51,7 +52,7 @@ flowchart LR
     lb["Azure Standard Load Balancer<br/>public EXTERNAL-IP<br/>azure-allowed-ip-ranges"]
   end
 
-  splunk["Splunk on-prem<br/>DMX_HOST"]
+  splunk["Splunk on-prem<br/>DMX_HOST + HEC receivers"]
 
   docker -->|"docker push"| acr
   pullsec --> dep
@@ -63,8 +64,10 @@ flowchart LR
   svc --> dep
   cm --> dep
   sec --> dep
+  pvc --> dep
   dep -->|"TCP 8089 OpAMP + packages"| splunk
-  dep -->|"TCP 9997 processed data S2S"| splunk
+  dep -->|"TCP 9997 S2S export"| splunk
+  dep -->|"HEC export TCP 443 or 8088"| splunk
 ```
 
 | Layer | Default | Purpose |
@@ -74,9 +77,10 @@ flowchart LR
 | **AKS cluster** | `ep-aks` in `ep-rg` | Runs Kubernetes |
 | **Worker nodes** | 2 × `Standard_D4s_v5` (from `.env`) | Host EP pods (Ubuntu 22.04) |
 | **EP pods** | 2 (`replicaCount` in values) | One Splunk instance per pod, same Edge Processor group |
+| **Pod storage** | `10Gi` PVC per pod (`persistence.size`) | Azure managed disk (default `managed-csi`); EP data under `/opt/splunk-edge` |
 | **LoadBalancer** | `ep-service` public IP | Single entry for HEC `:8088` and S2S `:9997`; synced allow-list from NSG config |
 | **Image** | `<ACR_NAME>.azurecr.io/edgeprocessor:latest` | Built locally; pulled via `acr-pull-secret` |
-| **Splunk outbound** | AKS SNAT IP → `:8089`, `:9997` | Registration, packages, and exported data to your indexer |
+| **Splunk inbound (AKS SNAT)** | AKS outbound SNAT IP | Allow from cluster on **8089** (OpAMP/packages), **9997** (S2S export), **443** or **8088** (HEC export — port depends on destination) |
 
 Each pod runs `splunk-edge`, `splunksup`, and `edge_linux_amd64`. All replicas share one **GROUP_ID** from the install script and appear as separate instances under the same Edge Processor group in Splunk UI.
 
@@ -153,7 +157,10 @@ Optional Helm sizing (`replicaCount`, CPU/memory): copy `helm/edge-processor/val
 ### 5. Verify
 
 1. Splunk UI → **Manage instances** → EP instances show **Healthy**
-2. Open Splunk firewall for AKS **outbound SNAT IP** on **8089** (OpAMP/packages) and **9997** (S2S data)
+2. Open Splunk/on-prem firewall for AKS **outbound SNAT IP** (see `./scripts/show-ep-endpoints.sh`):
+   - **8089** — OpAMP and package download
+   - **9997** — S2S data export
+   - **443** or **8088** — HEC export (port depends on the HEC destination configuration)
 3. Send a test HEC event using your **HEC token** from the Splunk UI (not the install-script JWT):
 
 ```bash
@@ -293,7 +300,7 @@ On each deploy, `apply-nsg-rules.sh`:
 
 **Update on-prem egress IPs:** edit `config/nsg-allowed-sources.conf`, then run `./scripts/deploy.sh install-script.txt --skip-build` (or `./scripts/apply-nsg-rules.sh` alone).
 
-**Also allow on-prem firewall outbound** to the LoadBalancer public IP on **8088** and **9997**, and Splunk inbound from AKS **outbound SNAT IP** on **8089** / **9997**.
+**Also allow on-prem firewall outbound** to the LoadBalancer public IP on **8088** and **9997**, and Splunk/on-prem **inbound** from AKS **outbound SNAT IP** on **8089**, **9997**, and **443** or **8088** (HEC export).
 
 > **Existing clusters** created before this NSG flow use AKS-managed VNets. The named NSG applies when AKS is created through `./scripts/setup-aks.sh` with the custom subnet. Migrating an old cluster requires a new cluster on the custom VNet or manual NSG work.
 
@@ -325,13 +332,26 @@ cp helm/edge-processor/values-local.yaml.example helm/edge-processor/values-loca
 | values key | Controls |
 | ---------- | -------- |
 | `replicaCount` | Fixed EP pod count (default 2) — see [Scale EP pods](#scale-ep-pods-after-initial-deploy) |
+| `persistence.enabled` | `true` = one PVC per pod (StatefulSet) |
+| `persistence.size` | Disk size per pod (default `10Gi`) — or set `EP_STORAGE_SIZE` in `.env` |
+| `persistence.storageClassName` | Azure disk class (default: cluster default, usually `managed-csi`) |
 | `image.repository` / `tag` | ACR image (must match `build-local.sh --push`) |
 | `resources` | CPU/memory per pod |
-| `strategy.rollingUpdate.maxSurge` | `0` = no extra pod during rollouts (avoids ghost Splunk instances) |
+| `strategy.rollingUpdate.maxUnavailable` | `1` = one pod at a time during rollouts |
 | `service.annotations` | e.g. internal Azure Load Balancer |
 | `terminationGracePeriodSeconds` | Time for Splunk offboard on pod shutdown |
 
 Splunk-specific settings (`dmxHost`, package URL, `groupId`, etc.) come from **`values-install.yaml`**, generated by `setup-from-install-script.sh`.
+
+**Storage:** each pod gets its own **ReadWriteOnce** PVC (`splunk-edge-data-0`, `splunk-edge-data-1`, …) mounted at `/opt/splunk-edge`. Set size in `values-local.yaml`:
+
+```yaml
+persistence:
+  enabled: true
+  size: 20Gi
+```
+
+> **Upgrading from Deployment:** if you deployed before StatefulSet + PVC, delete the old Deployment once before redeploying: `kubectl delete deployment ep-deployment -n splunk-edge --cascade=orphan` then run `./scripts/deploy.sh ...`.
 
 ---
 

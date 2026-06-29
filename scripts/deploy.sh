@@ -143,6 +143,21 @@ EOF
     sed -i.bak -E "s|^([[:space:]]*tag:).*|\1 ${tag}|" "${VALUES_LOCAL}"
     rm -f "${VALUES_LOCAL}.bak"
   fi
+
+  if [[ -n "${EP_STORAGE_SIZE:-}" ]]; then
+    if grep -q '^persistence:' "${VALUES_LOCAL}" && grep -q '^\s*size:' "${VALUES_LOCAL}"; then
+      sed -i.bak -E '/^persistence:/,/^[a-zA-Z]/ s|^([[:space:]]*size:).*|\1 '"${EP_STORAGE_SIZE}"'|' "${VALUES_LOCAL}"
+      rm -f "${VALUES_LOCAL}.bak"
+    else
+      echo "Adding persistence.size ${EP_STORAGE_SIZE} to ${VALUES_LOCAL}"
+      cat >> "${VALUES_LOCAL}" <<EOF
+
+persistence:
+  enabled: true
+  size: ${EP_STORAGE_SIZE}
+EOF
+    fi
+  fi
 }
 
 ensure_values_local

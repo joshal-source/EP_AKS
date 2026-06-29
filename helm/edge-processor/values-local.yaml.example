@@ -23,6 +23,12 @@ strategy:
     maxSurge: 0
     maxUnavailable: 1
 
+# Persistent volume per pod (Azure Disk via default storage class — one PVC per replica)
+persistence:
+  enabled: true
+  size: 10Gi
+  # storageClassName: managed-csi
+
 # service:
 #   type: LoadBalancer
 #   annotations:
